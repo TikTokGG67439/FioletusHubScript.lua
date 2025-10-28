@@ -52,7 +52,7 @@ local SLIDER_LIMITS = {
 
 local ORBIT_RADIUS_DEFAULT = 3.2
 local ORBIT_SPEED_BASE = 2.2
-local ALIGN_MAX_FORCE = 5e4
+local ALIGN_MAX_FORCE = 5e3
 local ALIGN_MIN_FORCE = 500
 local ALIGN_RESPONSIVENESS = 18
 
@@ -71,9 +71,9 @@ local DRIFT_FREQ = 0.12
 local DRIFT_AMP = 0.45
 
 -- PATHING (heuristic)
-local PATH_SAMPLE_ANGLE_STEPS = 24
-local PATH_SAMPLE_DIST_STEP = 1.2
-local PATH_MAX_SAMPLES = 18
+local PATH_SAMPLE_ANGLE_STEPS = 100
+local PATH_SAMPLE_DIST_STEP = 13
+local PATH_MAX_SAMPLES = 180
 
 local UI_POS = UDim2.new(0.5, -310, 0.82, -210)
 local FRAME_SIZE = UDim2.new(0, 620, 0, 460) -- немного выше для дополнительных кнопок
