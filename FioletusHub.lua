@@ -1,5 +1,3 @@
--myclient.lua
--For use only in [MyGameName] private development builds.
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
