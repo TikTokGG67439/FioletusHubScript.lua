@@ -1,4 +1,3 @@
--- Main UI script (preserves original UI). Loads heavy logic from external modules via HttpGet.
 local URL_LOGIC1 = "https://raw.githubusercontent.com/TikTokGG67439/FioletusHubScript.lua/refs/heads/main/FioletusLogic1.lua"
 local URL_LOGIC2 = "https://raw.githubusercontent.com/TikTokGG67439/FioletusHubScript.lua/refs/heads/main/FioletusLogic2.lua"
 local Logic1, Logic2 = {}, {}
@@ -592,7 +591,7 @@ local lookAimEnabled = false
 local lookAimTargetPart = "Head"
 local noFallEnabled = false
 local noFallThreshold = 4 -- studs
-local pathingEnabled = false
+local checkWallEnabled = false
 
 -- PERSISTENCE helpers (use both attribute+values)
 local function saveState()
@@ -614,7 +613,7 @@ local function saveState()
 	writePersistValue("Strafe_lookAimPart", lookAimTargetPart)
 	writePersistValue("Strafe_noFall", noFallEnabled and 1 or 0)
 	writePersistValue("Strafe_noFallThreshold", noFallThreshold)
-	writePersistValue("Strafe_pathing", pathingEnabled and 1 or 0)
+	writePersistValue("Strafe_checkWall", checkWallEnabled and 1 or 0)
 	writePersistValue("Strafe_lookAimStrength", tostring(getLookAimStrength and getLookAimStrength() or 0.12))
 	writePersistValue("Strafe_aimView", aimViewEnabled and 1 or 0)
 	writePersistValue("Strafe_aimViewMode", aimViewRotateMode)
@@ -657,7 +656,7 @@ local function loadState()
 	lookAimTargetPart = tostring(readPersistValue("Strafe_lookAimPart", lookAimTargetPart))
 	noFallEnabled = (tonumber(readPersistValue("Strafe_noFall", noFallEnabled and 1 or 0)) or 0) ~= 0
 	noFallThreshold = tonumber(readPersistValue("Strafe_noFallThreshold", noFallThreshold)) or noFallThreshold
-	pathingEnabled = (tonumber(readPersistValue("Strafe_pathing", pathingEnabled and 1 or 0)) or 0) ~= 0
+	checkWallEnabled = (tonumber(readPersistValue("Strafe_checkWall", checkWallEnabled and 1 or 0)) or 0) ~= 0
 
 	-- load aimView range and lookAim strength if present
 	local avr = tonumber(readPersistValue("Strafe_aimViewRange", orbitRadius)) or orbitRadius
