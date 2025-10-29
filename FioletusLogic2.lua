@@ -1,3 +1,19 @@
+
+
+-- CheckWall helper: returns true if target is occluded by world between local player and target
+local function isTargetOccludedByWall(localHRP, targetHRP)
+	if not localHRP or not targetHRP then return false end
+	local startPos = localHRP.Position + Vector3.new(0,1.2,0)
+	local endPos = targetHRP.Position + Vector3.new(0,1.2,0)
+	local rp = RaycastParams.new()
+	rp.FilterType = Enum.RaycastFilterType.Blacklist
+	rp.FilterDescendantsInstances = {LocalPlayer.Character, targetHRP.Parent}
+	local res = Workspace:Raycast(startPos, (endPos - startPos), rp)
+	if not res then return false end
+	if res.Instance and res.Instance:IsDescendantOf(targetHRP.Parent) then return false end
+	return true
+end
+
 -- Logic2: remainder of original
 
 -- INPUT handling
@@ -234,7 +250,7 @@ RunService.RenderStepped:Connect(function(dt)
 	local targetPos = targetHRP.Position + Vector3.new(ox, 1.2, oz)
 
 	-- Pathing: if enabled and direct line blocked, try to get a sample waypoint
-	if pathingEnabled then
+	if checkWallEnabled then
 		local rpParams = RaycastParams.new()
 		rpParams.FilterType = Enum.RaycastFilterType.Blacklist
 		rpParams.FilterDescendantsInstances = {LocalPlayer.Character, targetHRP.Parent}
