@@ -1,3 +1,16 @@
+local function isTargetOccludedByWall(localHRP, targetHRP)
+	if not localHRP or not targetHRP then return false end
+	local startPos = localHRP.Position + Vector3.new(0,1.2,0)
+	local endPos = targetHRP.Position + Vector3.new(0,1.2,0)
+	local rp = RaycastParams.new()
+	rp.FilterType = Enum.RaycastFilterType.Blacklist
+	rp.FilterDescendantsInstances = {LocalPlayer.Character, targetHRP.Parent}
+	local res = Workspace:Raycast(startPos, (endPos - startPos), rp)
+	if not res then return false end
+	if res.Instance and res.Instance:IsDescendantOf(targetHRP.Parent) then return false end
+	return true
+end
+
 -- Logic1: part of original starting at RenderStepped
 RunService.RenderStepped:Connect(function()
 	if espPickerFrame.Visible then
@@ -360,8 +373,8 @@ pathBtn.Text = "Pathing: OFF"
 styleButton(pathBtn)
 
 pathBtn.MouseButton1Click:Connect(function()
-	pathingEnabled = not pathingEnabled
-	pathBtn.Text = "Pathing: " .. (pathingEnabled and "ON" or "OFF")
+	checkWallEnabled = not checkWallEnabled
+	pathBtn.Text = "Pathing: " .. (checkWallEnabled and "ON" or "OFF")
 	saveState()
 end)
 
