@@ -1,3 +1,4 @@
+-- Main UI script (preserves original UI). Loads heavy logic from external modules via HttpGet.
 local URL_LOGIC1 = "https://raw.githubusercontent.com/TikTokGG67439/FioletusHubScript.lua/refs/heads/main/FioletusLogic1.lua"
 local URL_LOGIC2 = "https://raw.githubusercontent.com/TikTokGG67439/FioletusHubScript.lua/refs/heads/main/FioletusLogic2.lua"
 local Logic1, Logic2 = {}, {}
