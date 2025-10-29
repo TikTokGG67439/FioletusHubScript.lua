@@ -23,10 +23,6 @@ pcall(function() local m=tryLoad(URL_LOGIC2); if m then Logic2=m end end)
 _G.FioletusLogic1 = Logic1
 _G.FioletusLogic2 = Logic2
 
-
--myclient.lua
--For use only in [MyGameName] private development builds.
-
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
