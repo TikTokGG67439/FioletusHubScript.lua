@@ -1,210 +1,97 @@
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
-local UserInputService = game:GetService("UserInputService")
-local TweenService = game:GetService("TweenService")
 local Workspace = game:GetService("Workspace")
-
 local LocalPlayer = Players.LocalPlayer
-local PlayerId = LocalPlayer and LocalPlayer.UserId or 0
-local Camera = workspace.CurrentCamera
-
--- ---------- ЗАГРУЗКА ВНЕШНИХ ЛОГИК (ВАШИ ССЫЛКИ) ----------
-local success1, FioletusLogic1 = pcall(function()
-	local s = game:HttpGet("https://raw.githubusercontent.com/TikTokGG67439/FioletusHubScript.lua/refs/heads/main/FioletusLogic1.lua")
-	return loadstring(s)()
-end)
-if not success1 or type(FioletusLogic1) ~= "table" then
-	warn("FioletusLogic1 load failed; CheckWall will be basic fallback.")
-	FioletusLogic1 = {
-		CheckWall = function(localHRP, targetHRP)
-			-- очень простой fallback
-			if not localHRP or not targetHRP then return false end
-			local rp = RaycastParams.new()
-			rp.FilterType = Enum.RaycastFilterType.Blacklist
-			rp.FilterDescendantsInstances = {LocalPlayer.Character, targetHRP.Parent}
-			local dir = (targetHRP.Position - localHRP.Position)
-			local res = workspace:Raycast(localHRP.Position, dir, rp)
-			if res and res.Instance and not res.Instance:IsDescendantOf(targetHRP.Parent) then
-				return true
-			end
-			return false
-		end
-	}
-end
-
-local success2, FioletusLogic2 = pcall(function()
-	local s = game:HttpGet("https://raw.githubusercontent.com/TikTokGG67439/FioletusHubScript.lua/refs/heads/main/FioletusLogic2.lua")
-	return loadstring(s)()
-end)
-if not success2 or type(FioletusLogic2) ~= "table" then
-	warn("FioletusLogic2 load failed; creating local fallback manager.")
-	-- минимальные заглушки (чтобы остальной код не падал)
-	FioletusLogic2 = {
-		InitESP = function() end,
-		EnableESPForPlayer = function() end,
-		DisableESPForPlayer = function() end,
-		UpdateAllColor = function() end,
-		ApplyAimView = function() end,
-		DestroyAimGyro = function() end,
-		EnsureAimGyro = function() end
-	}
-end
-
--- ---- UTILS ----
-local function getHRP(player)
-	local ch = player and player.Character
-	if not ch then return nil end
-	return ch:FindFirstChild("HumanoidRootPart")
-end
-
-local function isAlive(player)
-	local ch = player and player.Character
-	if not ch then return false end
-	local hum = ch:FindFirstChildOfClass("Humanoid")
-	return hum and hum.Health and hum.Health > 0
-end
-
--- ---- STATE ----
-local enabled = false
-local currentTarget = nil
-local checkWallEnabled = false -- заменяет старый Pathing (CheckWall toggle)
-local aimViewCfg = {enabled = false, range = 6, axesY = true, rotateMode = "All"} -- будет передаваться в FioletusLogic2.ApplyAimView
-
--- --- UI (минимальный, только нужное: toggle, change target, CheckWall, ESP, AimView) ---
 local playerGui = LocalPlayer:WaitForChild("PlayerGui")
-local gui = Instance.new("ScreenGui"); gui.Name = "StrafeMainGUI_"..tostring(PlayerId); gui.ResetOnSpawn = false; gui.Parent = playerGui
-local frame = Instance.new("Frame", gui); frame.Size = UDim2.new(0, 420, 0, 52); frame.Position = UDim2.new(0.02,0,0.02,0); frame.BackgroundTransparency = 0.2
-local function newBtn(name, posX, text)
-	local b = Instance.new("TextButton", frame)
-	b.Size = UDim2.new(0, 80, 1, -8)
-	b.Position = UDim2.new(0, posX, 0, 4)
-	b.Text = text or name
-	b.Name = name
-	return b
-end
-local toggleBtn = newBtn("Toggle", 0, "OFF")
-local changeBtn = newBtn("Cycle", 0.20, "Cycle")
-local checkWallBtn = newBtn("CheckWall", 0.40, "CheckWall: OFF")
-local espBtn = newBtn("ESP", 0.60, "ESP: OFF")
-local aimViewBtn = newBtn("AimView", 0.80, "AimView: OFF")
 
--- wire UI
+-- URLS на внешние модули (raw GitHub). Если хотите заменить, редактируйте эти строки.
+local URL_LOGIC1 = "https://raw.githubusercontent.com/TikTokGG67439/FioletusHubScript.lua/refs/heads/main/FioletusLogic1.lua"
+local URL_LOGIC2 = "https://raw.githubusercontent.com/TikTokGG67439/FioletusHubScript.lua/refs/heads/main/FioletusLogic2.lua"
+local Logic1, Logic2 = {}, {}
+
+-- Функция безопасной загрузки модуля через HttpGet -> loadstring. Если не удаётся, остаётся пустая таблица.
+local function tryLoad(url)
+    local ok, res = pcall(function()
+        local s = game:HttpGet(url)
+        if s and #s > 8 then
+            local f = loadstring(s)
+            if f then
+                local ok2, ret = pcall(f)
+                if ok2 and type(ret) == "table" then return ret end
+            end
+        end
+    end)
+    return ok and res or nil
+end
+
+-- Попытка загрузить внешние модули. Если вы тестируете оффлайн, можно положить модули локально и заменить логику.
+pcall(function() local m = tryLoad(URL_LOGIC1); if m then Logic1 = m end end)
+pcall(function() local m = tryLoad(URL_LOGIC2); if m then Logic2 = m end end)
+
+-- Простая UI панель — только кнопки управления и индикаторы. Полная реализация UI из оригинала находится в основном файле (mодулях).
+local screenGui = Instance.new("ScreenGui", playerGui)
+screenGui.Name = "FioletusHub_UI"
+local mainFrame = Instance.new("Frame", screenGui)
+mainFrame.Size = UDim2.new(0, 520, 0, 260)
+mainFrame.Position = UDim2.new(0.5, -260, 0.7, -130)
+mainFrame.BackgroundColor3 = Color3.fromRGB(18,18,20)
+local title = Instance.new("TextLabel", mainFrame)
+title.Size = UDim2.new(1, -12, 0, 28)
+title.Position = UDim2.new(0,6,0,6)
+title.BackgroundTransparency = 1
+title.Text = "FioletusHub (UI)"
+title.Font = Enum.Font.GothamBold
+title.TextSize = 18
+title.TextColor3 = Color3.new(1,1,1)
+
+-- Кнопки: Toggle, CheckWall, PlayerESP, AimView (управляют состоянием в модулях через _G API)
+local function makeButton(parent, name, pos, text)
+    local b = Instance.new("TextButton", parent)
+    b.Size = UDim2.new(0, 120, 0, 28)
+    b.Position = pos
+    b.Text = text
+    b.Name = name
+    return b
+end
+local toggleBtn = makeButton(mainFrame, "Toggle", UDim2.new(0,8,0,44), "Enable")
+local checkWallBtn = makeButton(mainFrame, "CheckWall", UDim2.new(0,140,0,44), "CheckWall: OFF")
+local espBtn = makeButton(mainFrame, "ESP", UDim2.new(0,272,0,44), "PlayerESP: OFF")
+local aimBtn = makeButton(mainFrame, "Aim", UDim2.new(0,404,0,44), "AimView: OFF")
+
+-- State reflected into modules via _G if modules are present
+local enabled = false
+local checkWallEnabled = false
+local espEnabled = false
+local aimEnabled = false
+
 toggleBtn.MouseButton1Click:Connect(function()
-	enabled = not enabled
-	toggleBtn.Text = enabled and "ON" or "OFF"
-	if not enabled then
-		currentTarget = nil
-		pcall(function() FioletusLogic2.DestroyAimGyro() end)
-	end
-end)
-changeBtn.MouseButton1Click:Connect(function()
-	local myHRP = getHRP(LocalPlayer)
-	if not myHRP then return end
-	local list = {}
-	for _,p in ipairs(Players:GetPlayers()) do
-		if p ~= LocalPlayer and isAlive(p) then
-			local hrp = getHRP(p)
-			if hrp then table.insert(list, {p=p, d=(hrp.Position - myHRP.Position).Magnitude}) end
-		end
-	end
-	table.sort(list, function(a,b) return a.d < b.d end)
-	if #list == 0 then currentTarget = nil else
-		if not currentTarget then currentTarget = list[1].p else
-			local idx = nil
-			for i,v in ipairs(list) do if v.p == currentTarget then idx = i; break end end
-			if not idx then currentTarget = list[1].p else currentTarget = list[(idx % #list) + 1].p end
-		end
-	end
+    enabled = not enabled
+    toggleBtn.Text = enabled and "Disable" or "Enable"
+    if Logic1 and Logic1.OnToggle then pcall(Logic1.OnToggle, enabled) end
 end)
 checkWallBtn.MouseButton1Click:Connect(function()
-	checkWallEnabled = not checkWallEnabled
-	checkWallBtn.Text = "CheckWall: " .. (checkWallEnabled and "ON" or "OFF")
+    checkWallEnabled = not checkWallEnabled
+    checkWallBtn.Text = "CheckWall: " .. (checkWallEnabled and "ON" or "OFF")
+    if Logic1 and Logic1.SetCheckWall then pcall(Logic1.SetCheckWall, checkWallEnabled) end
 end)
-local espOn = false
 espBtn.MouseButton1Click:Connect(function()
-	espOn = not espOn
-	espBtn.Text = "ESP: " .. (espOn and "ON" or "OFF")
-	pcall(function()
-		if espOn then
-			if FioletusLogic2.InitESP then FioletusLogic2.InitESP() end
-			for _,p in ipairs(Players:GetPlayers()) do if p ~= LocalPlayer and p.Character then if FioletusLogic2.EnableESPForPlayer then FioletusLogic2.EnableESPForPlayer(p) end end end
-		else
-			for _,p in ipairs(Players:GetPlayers()) do if FioletusLogic2.DisableESPForPlayer then FioletusLogic2.DisableESPForPlayer(p) end end
-		end
-	end)
+    espEnabled = not espEnabled
+    espBtn.Text = "PlayerESP: " .. (espEnabled and "ON" or "OFF")
+    if Logic2 and Logic2.SetESP then pcall(Logic2.SetESP, espEnabled) end
 end)
-aimViewBtn.MouseButton1Click:Connect(function()
-	aimViewCfg.enabled = not aimViewCfg.enabled
-	aimViewBtn.Text = "AimView: " .. (aimViewCfg.enabled and "ON" or "OFF")
-	if not aimViewCfg.enabled then
-		pcall(function() FioletusLogic2.DestroyAimGyro() end)
-	end
+aimBtn.MouseButton1Click:Connect(function()
+    aimEnabled = not aimEnabled
+    aimBtn.Text = "AimView: " .. (aimEnabled and "ON" or "OFF")
+    if Logic1 and Logic1.SetAimView then pcall(Logic1.SetAimView, aimEnabled) end
 end)
 
--- keep ESP up to date on joins/resets
-Players.PlayerAdded:Connect(function(p)
-	p.CharacterAdded:Connect(function()
-		if espOn and p ~= LocalPlayer then pcall(function() if FioletusLogic2.EnableESPForPlayer then FioletusLogic2.EnableESPForPlayer(p) end end) end
-	end)
-end)
-Players.PlayerRemoving:Connect(function(p)
-	pcall(function() if FioletusLogic2.DisableESPForPlayer then FioletusLogic2.DisableESPForPlayer(p) end end)
-	if p == currentTarget then currentTarget = nil end
-end)
+-- Expose minimal _G API so heavy modules can receive state if HttpGet failed and modules loaded locally.
+_G.FioletusHub = {
+    GetState = function() return { enabled = enabled, checkWall = checkWallEnabled, esp = espEnabled, aim = aimEnabled } end,
+}
 
--- ---- CORE TARGET LOOP (RenderStepped) ----
-RunService.RenderStepped:Connect(function(dt)
-	if not enabled then return end
-	if currentTarget and (not isAlive(currentTarget) or not getHRP(currentTarget)) then currentTarget = nil end
-
-	if not currentTarget then
-		local myHRP = getHRP(LocalPlayer)
-		if myHRP then
-			local closest, bestD = nil, math.huge
-			for _,p in ipairs(Players:GetPlayers()) do
-				if p ~= LocalPlayer and isAlive(p) then
-					local hrp = getHRP(p)
-					if hrp then
-						local d = (hrp.Position - myHRP.Position).Magnitude
-						if d < bestD then closest, bestD = p, d end
-					end
-				end
-			end
-			if closest and bestD < 100 then currentTarget = closest end
-		end
-	end
-
-	if currentTarget then
-		local myHRP = getHRP(LocalPlayer)
-		local targetHRP = getHRP(currentTarget)
-		if not myHRP or not targetHRP then currentTarget = nil; return end
-
-		local blocked = false
-		pcall(function()
-			if checkWallEnabled and FioletusLogic1 and FioletusLogic1.CheckWall then
-				blocked = FioletusLogic1.CheckWall(myHRP, targetHRP)
-			end
-		end)
-
-		if blocked then
-			pcall(function() if FioletusLogic2 and FioletusLogic2.DestroyAimGyro then FioletusLogic2.DestroyAimGyro() end end)
-		else
-			pcall(function()
-				if FioletusLogic2 and FioletusLogic2.ApplyAimView then
-					FioletusLogic2.ApplyAimView(myHRP, targetHRP, aimViewCfg)
-				end
-			end)
-		end
-	end
-end)
-
-LocalPlayer.CharacterAdded:Connect(function(ch)
-	ch:WaitForChild("HumanoidRootPart", 2)
-	pcall(function() FioletusLogic2.DestroyAimGyro() end)
-end)
-
-script.AncestryChanged:Connect(function()
-	if not script:IsDescendantOf(game) then
-		pcall(function() FioletusLogic2.DestroyAimGyro() end)
-	end
+-- Clean up on destroy
+screenGui.Destroying:Connect(function()
+    if Logic1 and Logic1.Cleanup then pcall(Logic1.Cleanup) end
+    if Logic2 and Logic2.Cleanup then pcall(Logic2.Cleanup) end
 end)
