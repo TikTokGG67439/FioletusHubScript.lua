@@ -1,143 +1,952 @@
-local Module = {}
-local Host = nil
+	if not ch then return nil end
+	return ch:FindFirstChild("HumanoidRootPart")
+end
 
--- Persistent force objects (create once)
-local bv = nil -- BodyVelocity
-local bg = nil -- BodyGyro
-local forceParent = nil -- part to attach forces to
-
--- Simple ensure function to avoid repeated allocations
-local function ensureForces(hrp)
-	if not hrp then return end
-	forceParent = hrp
-	if not bv or not bv.Parent then
-		bv = Instance.new("BodyVelocity")
-		bv.MaxForce = Vector3.new(0,0,0)
-		bv.P = 8000
-		bv.Velocity = Vector3.new(0,0,0)
-		bv.Parent = hrp
-	end
-	if not bg or not bg.Parent then
-		bg = Instance.new("BodyGyro")
-		bg.MaxTorque = Vector3.new(0,0,0)
-		bg.P = 1200
-		bg.Parent = hrp
+local function safeDestroy(obj)
+	if obj and obj.Parent then
+		pcall(function() obj:Destroy() end)
 	end
 end
 
--- Cleanly disable forces without destroying (so references stay small)
-function Module.DisableForces()
-	pcall(function()
-		if bv then bv.MaxForce = Vector3.new(0,0,0); bv.Velocity = Vector3.new(0,0,0) end
-		if bg then bg.MaxTorque = Vector3.new(0,0,0) end
-	end)
-end
-function Module.EnableForces()
-	pcall(function()
-		if bv then bv.MaxForce = Vector3.new(4e5,4e5,4e5) end
-		if bg then bg.MaxTorque = Vector3.new(3e5,3e5,3e5) end
-	end)
+local function charToKeyCode(str)
+	if not str or #str == 0 then return nil end
+	local s = tostring(str):upper()
+	if s == "-" then return "-" end
+	local ok, val = pcall(function() return Enum.KeyCode[s] end)
+	if ok and val then return val end
+	return nil
 end
 
--- AimView: save/restore camera
-local savedCameraType = nil
-local savedCFrame = nil
-local aimActive = false
+local function clamp(v, lo, hi) return math.max(lo, math.min(hi, v)) end
+local function lerp(a,b,t) return a + (b-a) * t end
 
-function Module.EnableAimView()
-	if aimActive then return end
-	aimActive = true
-	pcall(function()
-		local cam = Host and Host.GetCamera and Host.GetCamera()
-		if cam then
-			savedCameraType = cam.CameraType
-			savedCFrame = cam.CFrame
-			cam.CameraType = Enum.CameraType.Scriptable
-		end
-	end)
-end
-function Module.DisableAimView()
-	if not aimActive then return end
-	aimActive = false
-	pcall(function()
-		local cam = Host and Host.GetCamera and Host.GetCamera()
-		if cam then
-			if savedCameraType then cam.CameraType = savedCameraType end
-			if savedCFrame then cam.CFrame = savedCFrame end
-		end
-	end)
-end
-
--- Basic ground check used by NoFall
-local function hasGroundBelow(pos, maxDist)
-	local ws = Host and Host.GetWorkspace and Host.GetWorkspace()
-	if not ws then return false end
+-- robust raycast down helper
+local function raycastDown(origin, maxDist, ignoreInst)
 	local rp = RaycastParams.new()
 	rp.FilterType = Enum.RaycastFilterType.Blacklist
-	local selfChar = Host and Host.GetLocalPlayer and Host.GetLocalPlayer().Character or nil
-	if selfChar then rp.FilterDescendantsInstances = {selfChar} end
-	local r = ws:Raycast(pos + Vector3.new(0,1.3,0), Vector3.new(0,-maxDist,0), rp)
-	return r ~= nil
+	if ignoreInst then rp.FilterDescendantsInstances = {ignoreInst} end
+	local res = Workspace:Raycast(origin, Vector3.new(0, -maxDist, 0), rp)
+	return res
 end
 
--- Called by Main to allow Logic1 perform NoFall handling; returns true if forces were suspended
-function Module.HandleNoFall(myHRP)
-	if not myHRP then return false end
-	local player = Host and Host.GetLocalPlayer and Host.GetLocalPlayer()
-	if not player then return false end
-	local attrs = player and player:GetAttribute and player:GetAttribute("NoFallThreshold") or nil
-	local threshold = (attrs and tonumber(attrs)) or 6
-	if not hasGroundBelow(myHRP.Position, threshold) then
-		Module.DisableForces()
-		return true
+-- PERSISTENCE: store values under Player to survive respawn; also use Attributes if present
+local persistFolder = nil
+local function ensurePersistFolder()
+	if persistFolder and persistFolder.Parent then return end
+	persistFolder = LocalPlayer:FindFirstChild("StrafePersist")
+	if not persistFolder then
+		persistFolder = Instance.new("Folder")
+		persistFolder.Name = "StrafePersist"
+		persistFolder.Parent = LocalPlayer
 	end
-	Module.EnableForces()
-	return false
 end
 
--- Main application of strafe forces; keeps function small and simple
-function Module.ApplyStrafeForces(myHRP, targetHRP, params)
-	if not myHRP or not targetHRP then return end
-	ensureForces(myHRP)
-	-- do not recreate BV/BG here to avoid register/alloc issues
-	-- compute direction and set velocities
-	local dir = (targetHRP.Position - myHRP.Position)
-	local horiz = Vector3.new(dir.X, 0, dir.Z)
-	local dist = horiz.Magnitude
-	if dist <= 0 then return end
-	-- orbit offset perpendicular
-	local perp = Vector3.new(-horiz.Z, 0, horiz.X).Unit
-	local radius = tonumber(params and params.radius) or 3.2
-	local speed = tonumber(params and params.speed) or 12
-	-- simple circling velocity: tangent + slight toward target
-	local tangent = perp * speed
-	local toward = horiz.Unit * (math.max(0, 6 - (dist/2)))
-	local finalVel = tangent + toward
-	-- apply BodyVelocity
-	pcall(function()
-		if bv then bv.MaxForce = Vector3.new(4e5,4e5,4e5); bv.Velocity = Vector3.new(finalVel.X, bv.Velocity.Y, finalVel.Z) end
-		if bg then bg.MaxTorque = Vector3.new(3e5,3e5,3e5); bg.CFrame = CFrame.new(Vector3.new(), (targetHRP.Position - myHRP.Position).Unit) end
-	end)
-	-- AimView assistance: rotate camera if requested (delegated minimal)
-	if params and params.aimView and Host and Host.GetCamera then
+local function writePersistValue(name, value)
+	ensurePersistFolder()
+	local existing = persistFolder:FindFirstChild(name)
+	if existing then
+		if existing:IsA("BoolValue") then existing.Value = (value and true or false) end
+		if existing:IsA("NumberValue") then existing.Value = tonumber(value) or 0 end
+		if existing:IsA("StringValue") then existing.Value = tostring(value) end
+	else
+		local typ = type(value)
+		if typ == "boolean" then
+			local v = Instance.new("BoolValue")
+			v.Name = name
+			v.Value = value
+			v.Parent = persistFolder
+		elseif typ == "number" then
+			local v = Instance.new("NumberValue")
+			v.Name = name
+			v.Value = value
+			v.Parent = persistFolder
+		else
+			local v = Instance.new("StringValue")
+			v.Name = name
+			v.Value = tostring(value)
+			v.Parent = persistFolder
+		end
+	end
+	pcall(function() if LocalPlayer.SetAttribute then LocalPlayer:SetAttribute(name, value) end end)
+end
+
+local function readPersistValue(name, default)
+	ensurePersistFolder()
+	local existing = persistFolder:FindFirstChild(name)
+	if existing then
+		if existing:IsA("BoolValue") then return existing.Value end
+		if existing:IsA("NumberValue") then return existing.Value end
+		if existing:IsA("StringValue") then return existing.Value end
+	end
+	if LocalPlayer.GetAttribute then
+		local ok, val = pcall(function() return LocalPlayer:GetAttribute(name) end)
+		if ok and val ~= nil then return val end
+	end
+	return default
+end
+
+-- UI CREATION
+local playerGui = LocalPlayer:WaitForChild("PlayerGui")
+
+-- remove old ui if exists
+for _, c in ipairs(playerGui:GetChildren()) do
+	if c.Name == "StrafeRingUI_v4_"..tostring(PlayerId) then safeDestroy(c) end
+end
+
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "StrafeRingUI_v4_"..tostring(PlayerId)
+screenGui.ResetOnSpawn = false
+screenGui.Parent = playerGui
+
+local frame = Instance.new("Frame")
+frame.Name = "MainFrame"
+frame.Size = FRAME_SIZE
+frame.Position = UI_POS
+frame.BackgroundColor3 = Color3.fromRGB(16,29,31)
+frame.Active = true
+frame.Draggable = true
+frame.Parent = screenGui
+
+local frameCorner = Instance.new("UICorner")
+frameCorner.CornerRadius = UDim.new(0,10)
+frameCorner.Parent = frame
+
+local frameStroke = Instance.new("UIStroke")
+frameStroke.Thickness = 2
+frameStroke.Parent = frame
+
+-- animate stroke color between two violets
+local strokeColors = {Color3.fromRGB(212,61,146), Color3.fromRGB(160,0,213)}
+spawn(function()
+	local idx = 1
+	while frameStroke and frameStroke.Parent do
+		local nextColor = strokeColors[idx]
+		idx = idx % #strokeColors + 1
+		local ok, tw = pcall(function()
+			return TweenService:Create(frameStroke, TweenInfo.new(1.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {Color = nextColor})
+		end)
+		if ok and tw then tw:Play(); tw.Completed:Wait() end
+		wait(0.06)
+	end
+end)
+
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(1, -12, 0, 42)
+title.Position = UDim2.new(0, 6, 0, 6)
+title.BackgroundTransparency = 1
+title.Text = "FioletusHub"
+title.Font = Enum.Font.Arcade
+title.TextSize = 32
+title.TextColor3 = strokeColors[1]
+title.TextStrokeTransparency = 0.7
+title.Parent = frame
+
+spawn(function()
+	local i = 1
+	while title and title.Parent do
+		local col = strokeColors[i]
+		i = i % #strokeColors + 1
 		pcall(function()
-			local cam = Host.GetCamera()
-			if cam and cam.CameraType ~= Enum.CameraType.Scriptable then
-				-- small lookat using CFrame.lookAt without excessive allocations
-				cam.CFrame = CFrame.new(cam.CFrame.Position, targetHRP.Position)
+			local tw = TweenService:Create(title, TweenInfo.new(1.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {TextColor3 = col})
+			tw:Play()
+			tw.Completed:Wait()
+		end)
+		wait(0.05)
+	end
+end)
+
+local function styleButton(btn)
+	btn.Font = Enum.Font.Arcade
+	btn.TextScaled = true
+	btn.BackgroundColor3 = Color3.fromRGB(51,38,53)
+	btn.BorderSizePixel = 0
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0,6)
+	corner.Parent = btn
+	local stroke = Instance.new("UIStroke")
+	stroke.Thickness = 1.6
+	stroke.Color = Color3.fromRGB(212,61,146)
+	stroke.Parent = btn
+	return btn
+end
+
+local function styleTextBox(tb)
+	tb.Font = Enum.Font.Arcade
+	tb.TextScaled = true
+	tb.BackgroundColor3 = Color3.fromRGB(51,38,53)
+	tb.ClearTextOnFocus = false
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0,6)
+	corner.Parent = tb
+	local stroke = Instance.new("UIStroke")
+	stroke.Thickness = 1.2
+	stroke.Color = Color3.fromRGB(170,0,220)
+	stroke.Parent = tb
+	return tb
+end
+
+-- Controls
+local toggleBtn = Instance.new("TextButton")
+toggleBtn.Size = UDim2.new(0.20, -6, 0, 44)
+toggleBtn.Position = UDim2.new(0, 6, 0, 66)
+toggleBtn.Text = "OFF"
+toggleBtn.Parent = frame
+styleButton(toggleBtn)
+
+local changeTargetBtn = Instance.new("TextButton")
+changeTargetBtn.Size = UDim2.new(0.28, -6, 0, 44)
+changeTargetBtn.Position = UDim2.new(0.22, 6, 0, 66)
+changeTargetBtn.Text = "Change Target"
+changeTargetBtn.Parent = frame
+styleButton(changeTargetBtn)
+
+local hotkeyBox = Instance.new("TextBox")
+hotkeyBox.Size = UDim2.new(0.24, -6, 0, 44)
+hotkeyBox.Position = UDim2.new(0.52, 6, 0, 66)
+hotkeyBox.Text = "Hotkey: F"
+hotkeyBox.Parent = frame
+styleTextBox(hotkeyBox)
+
+local chargeHotkeyBox = Instance.new("TextBox")
+chargeHotkeyBox.Size = UDim2.new(0.24, -6, 0, 44)
+chargeHotkeyBox.Position = UDim2.new(0.76, 6, 0, 66)
+chargeHotkeyBox.Text = "Charge: G"
+chargeHotkeyBox.Parent = frame
+styleTextBox(chargeHotkeyBox)
+
+local infoLabel = Instance.new("TextLabel")
+infoLabel.Size = UDim2.new(1, -12, 0, 24)
+infoLabel.Position = UDim2.new(0, 6, 0, 116)
+infoLabel.BackgroundTransparency = 1
+infoLabel.Text = "Nearest: — | Dist: — | Dir: CW | R: "..tostring(ORBIT_RADIUS_DEFAULT)
+infoLabel.Font = Enum.Font.Arcade
+infoLabel.TextSize = 14
+infoLabel.TextColor3 = Color3.fromRGB(220,220,220)
+infoLabel.TextXAlignment = Enum.TextXAlignment.Left
+infoLabel.Parent = frame
+
+local espBtn = Instance.new("TextButton")
+espBtn.Size = UDim2.new(0.24, -6, 0, 36)
+espBtn.Position = UDim2.new(0.76, 6, 0, 148)
+espBtn.Text = "PlayerESP"
+espBtn.Parent = frame
+styleButton(espBtn)
+
+local espGearBtn = Instance.new("TextButton")
+espGearBtn.Size = UDim2.new(0.12, -6, 0, 36)
+espGearBtn.Position = UDim2.new(0.88, 6, 0, 148)
+espGearBtn.Text = ""
+espGearBtn.Parent = frame
+styleButton(espGearBtn)
+
+-- Mode buttons
+local modeContainer = Instance.new("Frame", frame)
+modeContainer.Size = UDim2.new(1, -12, 0, 40)
+modeContainer.Position = UDim2.new(0, 6, 0, 186)
+modeContainer.BackgroundTransparency = 1
+
+local function makeModeButton(name, x)
+	local b = Instance.new("TextButton", modeContainer)
+	b.Size = UDim2.new(0.24, -8, 1, 0)
+	b.Position = UDim2.new(x, 6, 0, 0)
+	b.Text = name
+	styleButton(b)
+	return b
+end
+
+local btnSmooth = makeModeButton("Smooth", 0)
+local btnVelocity = makeModeButton("Velocity", 0.26)
+local btnTwisted = makeModeButton("Twisted", 0.52)
+local btnForce = makeModeButton("Force", 0.78)
+
+-- SLIDER helper (dragging disables frame movement)
+local sliderDraggingCount = 0
+
+local function setFrameDraggableState(allowed)
+	-- toggle draggable/active state for main frame and config pickers to prevent sliders from moving frames while dragging
+	pcall(function() frame.Draggable = allowed; frame.Active = allowed end)
+	pcall(function() if espPickerFrame then espPickerFrame.Draggable = allowed; espPickerFrame.Active = allowed end end)
+	pcall(function() if lookAimPicker then lookAimPicker.Draggable = allowed; lookAimPicker.Active = allowed end end)
+	pcall(function() if noFallPicker then noFallPicker.Draggable = allowed; noFallPicker.Active = allowed end end)
+	pcall(function() if aimViewPicker then aimViewPicker.Draggable = allowed; aimViewPicker.Active = allowed end end)
+	pcall(function() if pathPicker then pathPicker.Draggable = allowed; pathPicker.Active = allowed end end)
+end
+
+local function createSlider(parent, yOffset, labelText, minVal, maxVal, initialVal, formatFn)
+	local container = Instance.new("Frame", parent)
+	container.Size = UDim2.new(1, -12, 0, 36)
+	container.Position = UDim2.new(0, 6, 0, yOffset)
+	container.BackgroundTransparency = 1
+
+	local lbl = Instance.new("TextLabel", container)
+	lbl.Size = UDim2.new(0.5, 0, 1, 0)
+	lbl.Position = UDim2.new(0, 6, 0, 0)
+	lbl.BackgroundTransparency = 1
+	lbl.Text = labelText
+	lbl.TextXAlignment = Enum.TextXAlignment.Left
+	lbl.Font = Enum.Font.Arcade
+	lbl.TextScaled = true
+
+	local valLabel = Instance.new("TextLabel", container)
+	valLabel.Size = UDim2.new(0.5, -8, 1, 0)
+	valLabel.Position = UDim2.new(0.5, 0, 0, 0)
+	valLabel.BackgroundTransparency = 1
+	valLabel.Text = tostring(formatFn and formatFn(initialVal) or string.format("%.2f", initialVal))
+	valLabel.Font = Enum.Font.Arcade
+	valLabel.TextScaled = true
+	valLabel.TextXAlignment = Enum.TextXAlignment.Right
+
+	local sliderBg = Instance.new("Frame", container)
+	sliderBg.Size = UDim2.new(1, -12, 0, 8)
+	sliderBg.Position = UDim2.new(0, 6, 0, 20)
+	sliderBg.BackgroundColor3 = Color3.fromRGB(40,40,40)
+	sliderBg.BorderSizePixel = 0
+	sliderBg.ClipsDescendants = true
+	local bgCorner = Instance.new("UICorner", sliderBg); bgCorner.CornerRadius = UDim.new(0,4)
+	local bgStroke = Instance.new("UIStroke", sliderBg); bgStroke.Color = Color3.fromRGB(170,0,220)
+
+	local fill = Instance.new("Frame", sliderBg)
+	fill.Size = UDim2.new(0, 0, 1, 0)
+	fill.Position = UDim2.new(0,0,0,0)
+	fill.BackgroundColor3 = Color3.fromRGB(245,136,212)
+	fill.BorderSizePixel = 0
+	local fillCorner = Instance.new("UICorner", fill); fillCorner.CornerRadius = UDim.new(0,4)
+
+	local thumb = Instance.new("Frame", sliderBg)
+	thumb.Size = UDim2.new(0, 16, 0, 16)
+	thumb.Position = UDim2.new(0, -8, 0.5, -8)
+	thumb.AnchorPoint = Vector2.new(0.5, 0.5)
+	thumb.BackgroundColor3 = Color3.fromRGB(245,136,212)
+	thumb.BorderSizePixel = 0
+	local thumbCorner = Instance.new("UICorner", thumb); thumbCorner.CornerRadius = UDim.new(0,2)
+	local thumbStroke = Instance.new("UIStroke", thumb); thumbStroke.Color = Color3.fromRGB(245,136,212)
+
+	local dragging = false
+	local sliderWidth = 0
+	local function recalc()
+		sliderWidth = sliderBg.AbsoluteSize.X
+	end
+	sliderBg:GetPropertyChangedSignal("AbsoluteSize"):Connect(recalc)
+	recalc()
+
+	local minV, maxV = minVal, maxVal
+
+	local function setFromX(x)
+		if sliderWidth <= 0 then return end
+		local rel = clamp(x/sliderWidth, 0, 1)
+		fill.Size = UDim2.new(rel, 0, 1, 0)
+		thumb.Position = UDim2.new(rel, 0, 0.5, -8)
+		local v = minV + (maxV - minV) * rel
+		valLabel.Text = tostring(formatFn and formatFn(v) or string.format("%.2f", v))
+		return v
+	end
+
+	local function startDrag(input)
+		dragging = true
+		sliderDraggingCount = sliderDraggingCount + 1
+		setFrameDraggableState(false)
+		local localX = input.Position.X - sliderBg.AbsolutePosition.X
+		setFromX(localX)
+		input.Changed:Connect(function()
+			if input.UserInputState == Enum.UserInputState.End then
+				dragging = false
+				sliderDraggingCount = math.max(0, sliderDraggingCount - 1)
+				if sliderDraggingCount == 0 then setFrameDraggableState(true) end
 			end
 		end)
 	end
+
+	sliderBg.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			startDrag(input)
+		end
+	end)
+
+	thumb.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			startDrag(input)
+		end
+	end)
+
+	UserInputService.InputChanged:Connect(function(input)
+		if dragging and input.Position then
+			local localX = input.Position.X - sliderBg.AbsolutePosition.X
+			setFromX(localX)
+		end
+	end)
+
+	UserInputService.TouchMoved:Connect(function(touch, g)
+		if dragging then
+			local localX = touch.Position.X - sliderBg.AbsolutePosition.X
+			setFromX(localX)
+		end
+	end)
+
+	local function getValue()
+		local rel = 0
+		if sliderWidth > 0 then rel = fill.AbsoluteSize.X / sliderWidth end
+		return minV + (maxV - minV) * rel
+	end
+
+	local function setRange(minVv, maxVv, initV)
+		minV, maxV = minVv, maxVv
+		if initV then
+			local rel = 0
+			if maxV ~= minV then rel = (initV - minV) / (maxV - minV) end
+			fill.Size = UDim2.new(clamp(rel,0,1),0,1,0)
+			thumb.Position = UDim2.new(clamp(rel,0,1),0,0.5,-8)
+			valLabel.Text = tostring(formatFn and formatFn(initV) or string.format("%.2f", initV))
+		end
+	end
+
+	local function setLabel(txt) lbl.Text = txt end
+
+	return {
+		Container = container,
+		GetValue = getValue,
+		SetValue = function(v)
+			if maxV == minV then return end
+			local rel = (v - minV) / (maxV - minV)
+			fill.Size = UDim2.new(clamp(rel,0,1),0,1,0)
+			thumb.Position = UDim2.new(clamp(rel,0,1),0,0.5,-8)
+			valLabel.Text = tostring(formatFn and formatFn(v) or string.format("%.2f", v))
+		end,
+		SetRange = setRange,
+		SetLabel = setLabel,
+		ValueLabel = valLabel,
+		IsDragging = function() return dragging end,
+	}
 end
 
-function Module.OnEnable() end
-function Module.OnDisable() Module.DisableForces() end
-function Module.OnTargetChanged(newTarget) end
+-- create sliders
+local sliderSpeed = createSlider(frame, 236, "Orbit Speed", 0.2, 6.0, ORBIT_SPEED_BASE, function(v) return string.format("%.2f", v) end)
+local sliderRadius = createSlider(frame, 284, "Orbit Radius", 0.5, 8.0, ORBIT_RADIUS_DEFAULT, function(v) return string.format("%.2f", v) end)
+local sliderForce = createSlider(frame, 332, "Force Power", SLIDER_LIMITS.FORCE_POWER_MIN, SLIDER_LIMITS.FORCE_POWER_MAX, SLIDER_LIMITS.FORCE_POWER_DEFAULT, function(v) return string.format("%.0f", v) end)
+sliderForce.Container.Visible = false
+local sliderSearch = createSlider(frame, 380, "Search Radius", 5, 150, SEARCH_RADIUS_DEFAULT, function(v) return string.format("%.1f", v) end)
 
-function Module.Init(host)
-	Host = host or {}
+-- RUNTIME STATE
+local enabled = false
+	currentTargetCharConn = nil
+	currentTargetRemovingConn = nil
+local currentTarget = nil
+local ringParts = {}
+local folder = nil
+
+local mode = "smooth"
+
+local attach0, helperPart, helperAttach, alignObj = nil, nil, nil, nil
+local bvObj, bgObj, lvObj = nil, nil, nil
+local vfObj, vfAttach, fallbackForceBV = nil, nil, nil
+
+local charHumanoid = nil
+local helperVel = Vector3.new(0,0,0)
+
+local orbitAngle = math.random() * math.pi * 2
+local orbitDirection = 1
+local orbitRadius = ORBIT_RADIUS_DEFAULT
+local ORBIT_SPEED = ORBIT_SPEED_BASE
+local steeringInput = 0
+local shiftHeld = false
+
+local hotkeyKeyCode = Enum.KeyCode.F
+local hotkeyStr = "F"
+local hotkeyRequireCtrl, hotkeyRequireShift, hotkeyRequireAlt = false, false, false
+local ctrlHeld, altHeld = false, false
+
+local chargeKeyCode = Enum.KeyCode.G
+local chargeHotkeyStr = "G"
+local chargeRequireCtrl, chargeRequireShift, chargeRequireAlt = false, false, false
+
+local cycleKeyCode = Enum.KeyCode.H
+local cycleHotkeyStr = "H"
+
+local burstTimer = 0
+local burstStrength = 0
+local driftPhase = math.random() * 1000
+
+local chargeTimer = 0
+local CHARGE_DURATION = 0.45
+local CHARGE_STRENGTH = 4.0
+
+local espEnabled = false
+local playerHighlights = {}
+
+local espColor = {R=212, G=61, B=146}
+
+local autoJumpEnabled = false
+
+local lookAimEnabled = false
+local lookAimTargetPart = "Head"
+local noFallEnabled = false
+local noFallThreshold = 4 -- studs
+local checkWallEnabled = false
+
+-- PERSISTENCE helpers (use both attribute+values)
+local function saveState()
+	-- simple mapping of important vars
+	writePersistValue("Strafe_enabled", enabled and 1 or 0)
+	writePersistValue("Strafe_mode", mode)
+	writePersistValue("Strafe_hotkey", hotkeyStr)
+	writePersistValue("Strafe_orbitRadius", orbitRadius)
+	writePersistValue("Strafe_orbitSpeed", ORBIT_SPEED)
+	writePersistValue("Strafe_forcePower", tonumber(sliderForce.GetValue()) or SLIDER_LIMITS.FORCE_POWER_DEFAULT)
+	writePersistValue("Strafe_chargeHotkey", chargeHotkeyStr)
+	writePersistValue("Strafe_searchRadius", tonumber(sliderSearch.GetValue()) or SEARCH_RADIUS_DEFAULT)
+	writePersistValue("Strafe_esp", espEnabled and 1 or 0)
+	writePersistValue("Strafe_espR", espColor.R)
+	writePersistValue("Strafe_espG", espColor.G)
+	writePersistValue("Strafe_espB", espColor.B)
+	writePersistValue("Strafe_autojump", autoJumpEnabled and 1 or 0)
+	writePersistValue("Strafe_lookAim", lookAimEnabled and 1 or 0)
+	writePersistValue("Strafe_lookAimPart", lookAimTargetPart)
+	writePersistValue("Strafe_noFall", noFallEnabled and 1 or 0)
+	writePersistValue("Strafe_noFallThreshold", noFallThreshold)
+	writePersistValue("Strafe_pathing", checkWallEnabled and 1 or 0)
+	writePersistValue("Strafe_lookAimStrength", tostring(getLookAimStrength and getLookAimStrength() or 0.12))
+	writePersistValue("Strafe_aimView", aimViewEnabled and 1 or 0)
+	writePersistValue("Strafe_aimViewMode", aimViewRotateMode)
+	writePersistValue("Strafe_aimViewRange", tostring(avSlider and avSlider.GetValue and avSlider.GetValue() or orbitRadius))
+	-- persist slider values explicitly
+	if sliderSpeed and sliderSpeed.GetValue then writePersistValue('Strafe_sliderSpeed', tostring(sliderSpeed.GetValue())) end
+	if sliderRadius and sliderRadius.GetValue then writePersistValue('Strafe_sliderRadius', tostring(sliderRadius.GetValue())) end
+	if sliderForce and sliderForce.GetValue then writePersistValue('Strafe_sliderForce', tostring(sliderForce.GetValue())) end
+	if sliderSearch and sliderSearch.GetValue then writePersistValue('Strafe_sliderSearch', tostring(sliderSearch.GetValue())) end
+	if lookAimStrengthSlider and lookAimStrengthSlider.GetValue then writePersistValue('Strafe_lookAimStrength', tostring(lookAimStrengthSlider.GetValue())) end
+	if avSlider and avSlider.GetValue then writePersistValue('Strafe_aimViewRange', tostring(avSlider.GetValue())) end
+
 end
 
--- Expose API
-return Module
 
+local function loadState()
+	local e = readPersistValue("Strafe_enabled", 0)
+	enabled = (tonumber(e) or 0) ~= 0
+	local m = readPersistValue("Strafe_mode", mode)
+	if type(m) == "string" then mode = m end
+	local hk = readPersistValue("Strafe_hotkey", hotkeyStr)
+	if hk then hotkeyStr = tostring(hk) end
+	local orad = tonumber(readPersistValue("Strafe_orbitRadius", orbitRadius)) or orbitRadius
+	orbitRadius = orad; sliderRadius.SetValue(orbitRadius)
+	local ospeed = tonumber(readPersistValue("Strafe_orbitSpeed", ORBIT_SPEED)) or ORBIT_SPEED
+	ORBIT_SPEED = ospeed; sliderSpeed.SetValue(ORBIT_SPEED)
+	local fpow = tonumber(readPersistValue("Strafe_forcePower", SLIDER_LIMITS.FORCE_POWER_DEFAULT)) or SLIDER_LIMITS.FORCE_POWER_DEFAULT
+	sliderForce.SetValue(fpow)
+	local ch = readPersistValue("Strafe_chargeHotkey", chargeHotkeyStr)
+	if ch then chargeHotkeyStr = tostring(ch) end
+	local sr = tonumber(readPersistValue("Strafe_searchRadius", SEARCH_RADIUS_DEFAULT)) or SEARCH_RADIUS_DEFAULT
+	sliderSearch.SetValue(sr)
+	espEnabled = (tonumber(readPersistValue("Strafe_esp", espEnabled and 1 or 0)) or 0) ~= 0
+	local rcol = tonumber(readPersistValue("Strafe_espR", espColor.R)) or espColor.R
+	local gcol = tonumber(readPersistValue("Strafe_espG", espColor.G)) or espColor.G
+	local bcol = tonumber(readPersistValue("Strafe_espB", espColor.B)) or espColor.B
+	espColor.R, espColor.G, espColor.B = rcol, gcol, bcol
+	autoJumpEnabled = (tonumber(readPersistValue("Strafe_autojump", autoJumpEnabled and 1 or 0)) or 0) ~= 0
+	lookAimEnabled = (tonumber(readPersistValue("Strafe_lookAim", lookAimEnabled and 1 or 0)) or 0) ~= 0
+	lookAimTargetPart = tostring(readPersistValue("Strafe_lookAimPart", lookAimTargetPart))
+	noFallEnabled = (tonumber(readPersistValue("Strafe_noFall", noFallEnabled and 1 or 0)) or 0) ~= 0
+	noFallThreshold = tonumber(readPersistValue("Strafe_noFallThreshold", noFallThreshold)) or noFallThreshold
+	checkWallEnabled = (tonumber(readPersistValue("Strafe_pathing", checkWallEnabled and 1 or 0)) or 0) ~= 0
+
+	-- load aimView range and lookAim strength if present
+	local avr = tonumber(readPersistValue("Strafe_aimViewRange", orbitRadius)) or orbitRadius
+	if avSlider and avSlider.SetValue then pcall(function() avSlider.SetValue(avr) end) end
+	local las = tonumber(readPersistValue("Strafe_lookAimStrength", 0.12)) or 0.12
+	if lookAimStrengthSlider and lookAimStrengthSlider.SetValue then pcall(function() lookAimStrengthSlider.SetValue(las) end) end
+	-- load new settings
+	local las = tonumber(readPersistValue("Strafe_lookAimStrength", 0.12)) or 0.12
+	if lookAimStrengthSlider and lookAimStrengthSlider.SetValue then pcall(function() lookAimStrengthSlider.SetValue(las) end) end
+	aimViewEnabled = (tonumber(readPersistValue("Strafe_aimView", aimViewEnabled and 1 or 0)) or 0) ~= 0
+	aimViewRotateMode = tostring(readPersistValue("Strafe_aimViewMode", aimViewRotateMode))
+	-- restore explicit slider values
+	local ss = tonumber(readPersistValue('Strafe_sliderSpeed', nil)) if ss and sliderSpeed and sliderSpeed.SetValue then pcall(function() sliderSpeed.SetValue(ss) end) end
+	local sr = tonumber(readPersistValue('Strafe_sliderRadius', nil)) if sr and sliderRadius and sliderRadius.SetValue then pcall(function() sliderRadius.SetValue(sr) end) end
+	local sf = tonumber(readPersistValue('Strafe_sliderForce', nil)) if sf and sliderForce and sliderForce.SetValue then pcall(function() sliderForce.SetValue(sf) end) end
+	local ssearch = tonumber(readPersistValue('Strafe_sliderSearch', nil)) if ssearch and sliderSearch and sliderSearch.SetValue then pcall(function() sliderSearch.SetValue(ssearch) end) end
+	local lk = tonumber(readPersistValue('Strafe_lookAimStrength', nil)) if lk and lookAimStrengthSlider and lookAimStrengthSlider.SetValue then pcall(function() lookAimStrengthSlider.SetValue(lk) end) end
+	local avr = tonumber(readPersistValue('Strafe_aimViewRange', nil)) if avr and avSlider and avSlider.SetValue then pcall(function() avSlider.SetValue(avr) end) end
+
+end
+
+-- ring helpers
+local function ensureFolder()
+	if folder and folder.Parent then return end
+	folder = Instance.new("Folder")
+	folder.Name = "StrafeRing_v4_"..tostring(PlayerId)
+	folder.Parent = workspace
+end
+
+local function clearRing()
+	if folder then
+		for _, v in ipairs(folder:GetChildren()) do safeDestroy(v) end
+	end
+	ringParts = {}
+end
+
+local function createRingSegments(count)
+	clearRing()
+	ensureFolder()
+	local circumference = 2 * math.pi * RING_RADIUS
+	local segLen = (circumference / count) * 1.14
+	for i = 1, count do
+		local part = Instance.new("Part")
+		part.Size = Vector3.new(segLen, SEGMENT_HEIGHT, SEGMENT_THICK)
+		part.Anchored = true
+		part.CanCollide = false
+		part.Locked = true
+		part.Material = Enum.Material.Neon
+		part.Color = RING_COLOR
+		part.Transparency = RING_TRANSP
+		part.CastShadow = false
+		part.Name = "RingSeg"
+		part.Parent = folder
+		table.insert(ringParts, part)
+	end
+end
+
+-- MODE object creators (smooth/velocity/twisted/force)
+local function createSmoothObjectsFor(hrp)
+	if alignObj or helperPart then return end
+	attach0 = hrp:FindFirstChild("StrafeAttach0_"..tostring(PlayerId))
+	if not attach0 then
+		attach0 = Instance.new("Attachment")
+		attach0.Name = "StrafeAttach0_"..tostring(PlayerId)
+		attach0.Parent = hrp
+	end
+
+	helperPart = workspace:FindFirstChild("StrafeHelperPart_"..tostring(PlayerId))
+	if not helperPart then
+		helperPart = Instance.new("Part")
+		helperPart.Name = "StrafeHelperPart_"..tostring(PlayerId)
+		helperPart.Size = Vector3.new(0.2,0.2,0.2)
+		helperPart.Transparency = 1
+		helperPart.Anchored = true
+		helperPart.CanCollide = false
+		helperPart.CFrame = hrp.CFrame
+		helperPart.Parent = workspace
+	end
+
+	helperAttach = helperPart:FindFirstChild("StrafeAttach1_"..tostring(PlayerId))
+	if not helperAttach then
+		helperAttach = Instance.new("Attachment")
+		helperAttach.Name = "StrafeAttach1_"..tostring(PlayerId)
+		helperAttach.Parent = helperPart
+	end
+
+	alignObj = hrp:FindFirstChild("StrafeAlignPos_"..tostring(PlayerId))
+	if not alignObj then
+		alignObj = Instance.new("AlignPosition")
+		alignObj.Name = "StrafeAlignPos_"..tostring(PlayerId)
+		alignObj.Attachment0 = attach0
+		alignObj.Attachment1 = helperAttach
+		alignObj.MaxForce = ALIGN_MIN_FORCE
+		alignObj.Responsiveness = ALIGN_RESPONSIVENESS
+		alignObj.RigidityEnabled = false
+		pcall(function() alignObj.MaxVelocity = HELPER_MAX_SPEED end)
+		alignObj.Parent = hrp
+	end
+
+	helperVel = Vector3.new(0,0,0)
+end
+
+local function destroySmoothObjects()
+	safeDestroy(alignObj); alignObj = nil
+	safeDestroy(attach0); attach0 = nil
+	safeDestroy(helperAttach); helperAttach = nil
+	safeDestroy(helperPart); helperPart = nil
+	helperVel = Vector3.new(0,0,0)
+end
+
+local function createVelocityObjectsFor(hrp)
+	if bvObj or bgObj then return end
+	bvObj = hrp:FindFirstChild("Strafe_BV_"..tostring(PlayerId))
+	bgObj = hrp:FindFirstChild("Strafe_BG_"..tostring(PlayerId))
+	if not (bvObj and bgObj) then
+		local bv = Instance.new("BodyVelocity")
+		bv.Name = "Strafe_BV_"..tostring(PlayerId)
+		bv.MaxForce = Vector3.new(ALIGN_MIN_FORCE, ALIGN_MIN_FORCE, ALIGN_MIN_FORCE)
+		bv.P = 2500
+		bv.Velocity = Vector3.new(0,0,0)
+		bv.Parent = hrp
+
+		local bg = Instance.new("BodyGyro")
+		bg.Name = "Strafe_BG_"..tostring(PlayerId)
+		bg.MaxTorque = Vector3.new(ALIGN_MIN_FORCE, ALIGN_MIN_FORCE, ALIGN_MIN_FORCE)
+		bg.P = 2000
+		bg.CFrame = hrp.CFrame
+		bg.Parent = hrp
+
+		bvObj, bgObj = bv, bg
+	end
+end
+
+local function destroyVelocityObjects()
+	safeDestroy(bvObj); bvObj = nil
+	safeDestroy(bgObj); bgObj = nil
+end
+
+local function createLinearObjectsFor(hrp)
+	if lvObj then return end
+	local att = hrp:FindFirstChild("StrafeLVAttach")
+	if not att then
+		att = Instance.new("Attachment")
+		att.Name = "StrafeLVAttach"
+		att.Parent = hrp
+	end
+	local lv = hrp:FindFirstChild("Strafe_LV_"..tostring(PlayerId))
+	if not lv then
+		lv = Instance.new("LinearVelocity")
+		lv.Name = "Strafe_LV_"..tostring(PlayerId)
+		lv.Attachment0 = att
+		lv.MaxForce = 0
+		lv.VectorVelocity = Vector3.new(0,0,0)
+		lv.Parent = hrp
+	end
+	lvObj = lv
+end
+
+local function destroyLinearObjects()
+	safeDestroy(lvObj); lvObj = nil
+	local hrp = getHRP(LocalPlayer)
+	if hrp then
+		local att = hrp:FindFirstChild("StrafeLVAttach")
+		if att then safeDestroy(att) end
+	end
+end
+
+local function createForceObjectsFor(hrp)
+	if vfObj or fallbackForceBV then return end
+	local att = hrp:FindFirstChild("StrafeVFAttach")
+	if not att then
+		att = Instance.new("Attachment")
+		att.Name = "StrafeVFAttach"
+		att.Parent = hrp
+	end
+	vfAttach = att
+
+	local vf = hrp:FindFirstChild("Strafe_VectorForce_"..tostring(PlayerId))
+	if not vf then
+		local ok, v = pcall(function()
+			local vv = Instance.new("VectorForce")
+			vv.Name = "Strafe_VectorForce_"..tostring(PlayerId)
+			vv.Attachment0 = att
+			pcall(function() vv.RelativeTo = Enum.ActuatorRelativeTo.World end)
+			vv.Force = Vector3.new(0,0,0)
+			vv.Parent = hrp
+			return vv
+		end)
+		if ok and v then vfObj = v end
+	else vfObj = vf end
+
+	if not vfObj then
+		local bv = hrp:FindFirstChild("Strafe_ForceBV_"..tostring(PlayerId))
+		if not bv then
+			local ok2, b = pcall(function()
+				local bb = Instance.new("BodyVelocity")
+				bb.Name = "Strafe_ForceBV_"..tostring(PlayerId)
+				bb.MaxForce = Vector3.new(0,0,0)
+				bb.P = 3000
+				bb.Velocity = Vector3.new(0,0,0)
+				bb.Parent = hrp
+				return bb
+			end)
+			if ok2 and b then fallbackForceBV = b end
+		else fallbackForceBV = bv end
+	end
+end
+
+local function destroyForceObjects()
+	if vfObj then safeDestroy(vfObj); vfObj = nil end
+	if fallbackForceBV then safeDestroy(fallbackForceBV); fallbackForceBV = nil end
+	local hrp = getHRP(LocalPlayer)
+	if hrp then
+		local att = hrp:FindFirstChild("StrafeVFAttach")
+		if att then safeDestroy(att) end
+	end
+end
+
+local function destroyModeObjects()
+	destroySmoothObjects()
+	destroyVelocityObjects()
+	destroyLinearObjects()
+	destroyForceObjects()
+end
+
+-- TARGET management
+local function setTarget(player, forceClear)
+	if player == nil then
+		currentTarget = nil
+		clearRing()
+		destroyModeObjects()
+		return
+	end
+	if currentTarget == player and not forceClear then return end
+	currentTarget = player
+	clearRing()
+	destroyModeObjects()
+	if player then
+		createRingSegments(SEGMENTS)
+		orbitAngle = math.random() * math.pi * 2
+		local myHRP = getHRP(LocalPlayer)
+		if myHRP then
+			if mode == "smooth" then createSmoothObjectsFor(myHRP)
+			elseif mode == "velocity" then createVelocityObjectsFor(myHRP)
+			elseif mode == "twisted" then createLinearObjectsFor(myHRP)
+			elseif mode == "force" then createForceObjectsFor(myHRP) end
+		end
+	end
+	saveState()
+	-- manage currentTarget live connections
+	if currentTargetCharConn then pcall(function() currentTargetCharConn:Disconnect() end) end
+	if currentTargetRemovingConn then pcall(function() currentTargetRemovingConn:Disconnect() end) end
+	if currentTarget and currentTarget.Character then
+		local ok, ch = pcall(function() return currentTarget.Character end)
+		if ok and ch then
+			currentTargetCharConn = ch:FindFirstChild("Humanoid") and ch:FindFirstChildOfClass("Humanoid").Died:Connect(function()
+				setTarget(nil, true)
+			end) or nil
+		end
+		-- also watch for character added (in case of respawn)
+		currentTargetRemovingConn = currentTarget.CharacterRemoving and currentTarget.CharacterRemoving:Connect(function()
+			setTarget(nil, true)
+		end) or nil
+	end
+
+end
+
+local function cycleTarget()
+	local list = {}
+	local myHRP = getHRP(LocalPlayer)
+	if not myHRP then return end
+	for _, p in ipairs(Players:GetPlayers()) do
+			if p ~= LocalPlayer then
+				local hrp = getHRP(p)
+				if hrp then
+					local hum = hrp.Parent and hrp.Parent:FindFirstChildOfClass('Humanoid')
+					local alive = hum and hum.Health and hum.Health > 0
+					if alive then
+						local d = (hrp.Position - myHRP.Position).Magnitude
+						if d <= tonumber(sliderSearch.GetValue() or SEARCH_RADIUS_DEFAULT) then table.insert(list, {player=p, dist=d}) end
+					end
+				end
+			end
+		end
+	table.sort(list, function(a,b) return a.dist < b.dist end)
+	if #list == 0 then setTarget(nil); return end
+	if not currentTarget then setTarget(list[1].player); return end
+	local idx = nil
+	for i,v in ipairs(list) do if v.player == currentTarget then idx = i; break end end
+	if not idx then setTarget(list[1].player); return end
+	setTarget(list[idx % #list + 1].player)
+end
+
+-- UI Mode handling + AutoJump visibility
+local autoJumpBtn = nil
+local function updateAutoJumpUIVisibility()
+	if autoJumpBtn then
+		autoJumpBtn.Visible = (mode == "force")
+	end
+end
+
+local function applyModeUI()
+	local function setActive(btn, active)
+		if active then
+			btn.BackgroundTransparency = 0.2
+			btn.BackgroundColor3 = Color3.fromRGB(100,40,120)
+		else
+			btn.BackgroundTransparency = 0
+			btn.BackgroundColor3 = Color3.fromRGB(51,38,53)
+		end
+	end
+	setActive(btnSmooth, mode=="smooth")
+	setActive(btnVelocity, mode=="velocity")
+	setActive(btnTwisted, mode=="twisted")
+	setActive(btnForce, mode=="force")
+
+	if mode == "smooth" then
+		sliderSpeed.SetLabel("Orbit Speed")
+		sliderSpeed.SetRange(0.2, 6.0, ORBIT_SPEED)
+		sliderRadius.SetLabel("Orbit Radius")
+		sliderRadius.SetRange(0.5, 8.0, orbitRadius)
+		sliderForce.Container.Visible = false
+	elseif mode == "velocity" then
+		sliderSpeed.SetLabel("BV Power")
+		sliderSpeed.SetRange(SLIDER_LIMITS.BV_POWER_MIN, SLIDER_LIMITS.BV_POWER_MAX, SLIDER_LIMITS.BV_POWER_DEFAULT)
+		sliderRadius.SetLabel("Orbit Radius")
+		sliderRadius.SetRange(0.5, 8.0, orbitRadius)
+		sliderForce.Container.Visible = false
+	elseif mode == "twisted" then
+		sliderSpeed.SetLabel("Twist Power")
+		sliderSpeed.SetRange(SLIDER_LIMITS.TWIST_MIN, SLIDER_LIMITS.TWIST_MAX, SLIDER_LIMITS.TWIST_DEFAULT)
+		sliderRadius.SetLabel("Orbit Radius")
+		sliderRadius.SetRange(0.5, 8.0, orbitRadius)
+		sliderForce.Container.Visible = false
+	elseif mode == "force" then
+		sliderSpeed.SetLabel("Force Speed")
+		sliderSpeed.SetRange(SLIDER_LIMITS.FORCE_SPEED_MIN, SLIDER_LIMITS.FORCE_SPEED_MAX, SLIDER_LIMITS.FORCE_SPEED_DEFAULT)
+		sliderRadius.SetLabel("Orbit Radius")
+		sliderRadius.SetRange(0.5, 8.0, orbitRadius)
+		sliderForce.Container.Visible = true
+		sliderForce.SetRange(SLIDER_LIMITS.FORCE_POWER_MIN, SLIDER_LIMITS.FORCE_POWER_MAX, SLIDER_LIMITS.FORCE_POWER_DEFAULT)
+	end
+
+	updateAutoJumpUIVisibility()
+end
+
+btnSmooth.MouseButton1Click:Connect(function()
+	if mode ~= "smooth" then
+		mode = "smooth"
+		if currentTarget then
+			destroyModeObjects()
+			local myHRP = getHRP(LocalPlayer)
+			if myHRP then createSmoothObjectsFor(myHRP) end
+		end
+		applyModeUI(); saveState()
+	end
+end)
+btnVelocity.MouseButton1Click:Connect(function()
+	if mode ~= "velocity" then
+		mode = "velocity"
+		if currentTarget then
+			destroyModeObjects()
+			local myHRP = getHRP(LocalPlayer)
+			if myHRP then createVelocityObjectsFor(myHRP) end
+		end
+		applyModeUI(); saveState()
+	end
+end)
+btnTwisted.MouseButton1Click:Connect(function()
+	if mode ~= "twisted" then
+		mode = "twisted"
+		if currentTarget then
+			destroyModeObjects()
+			local myHRP = getHRP(LocalPlayer)
+			if myHRP then createLinearObjectsFor(myHRP) end
+		end
+		applyModeUI(); saveState()
+	end
+end)
+btnForce.MouseButton1Click:Connect(function()
+	if mode ~= "force" then
+		mode = "force"
+		if currentTarget then
+			destroyModeObjects()
+			local myHRP = getHRP(LocalPlayer)
+			if myHRP then createForceObjectsFor(myHRP) end
+		end
+		applyModeUI(); saveState()
+	end
+end)
+
+-- Hotkey parsing (supports "-" unassigned)
+local function parseHotkeyString(txt)
+	if not txt then return nil end
+	local s = tostring(txt):gsub("^%s*(.-)%s*$","%1")
+	s = s:gsub("^Hotkey:%s*", "")
+	s = s:gsub("^Charge:%s*", "")
+	s = s:gsub("^Cycle:%s*", "")
+	s = s:upper()
+	s = s:gsub("%s+", "")
+	if s == "-" then return "-", false, false, false end
+	local parts = {}
+	for token in s:gmatch("[^%+]+") do
+		token = token:gsub("^%s*(.-)%s*$","%1")
