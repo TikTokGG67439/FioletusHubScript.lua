@@ -1,3 +1,31 @@
+local espPickerFrame = Instance.new("Frame")
+espPickerFrame.Size = UDim2.new(0, 260, 0, 140)
+espPickerFrame.Position = UDim2.new(0.5, -130, 0.5, -70)
+espPickerFrame.BackgroundColor3 = Color3.fromRGB(16,29,31)
+espPickerFrame.Visible = false
+espPickerFrame.Parent = screenGui
+espPickerFrame.Active = true
+espPickerFrame.Draggable = true
+local espPickerCorner = Instance.new("UICorner", espPickerFrame); espPickerCorner.CornerRadius = UDim.new(0,8)
+local espPickerStroke = Instance.new("UIStroke", espPickerFrame); espPickerStroke.Thickness = 1.6; espPickerStroke.Color = Color3.fromRGB(160,0,213)
+
+local rSlider = createSlider(espPickerFrame, 8, "R", 1, 255, espColor.R, function(v) return tostring(math.floor(v)) end)
+rSlider.Container.Position = UDim2.new(0, 8, 0, 8)
+rSlider.Container.Size = UDim2.new(1, -16, 0, 28)
+local gSlider = createSlider(espPickerFrame, 56, "G", 1, 255, espColor.G, function(v) return tostring(math.floor(v)) end)
+gSlider.Container.Position = UDim2.new(0, 8, 0, 44)
+gSlider.Container.Size = UDim2.new(1, -16, 0, 28)
+local bSlider = createSlider(espPickerFrame, 104, "B", 1, 255, espColor.B, function(v) return tostring(math.floor(v)) end)
+bSlider.Container.Position = UDim2.new(0, 8, 0, 80)
+bSlider.Container.Size = UDim2.new(1, -16, 0, 28)
+
+local colorPreview = Instance.new("TextLabel", espPickerFrame)
+colorPreview.Size = UDim2.new(0, 48, 0, 48)
+colorPreview.Position = UDim2.new(1, -56, 0, 8)
+colorPreview.BackgroundColor3 = Color3.fromRGB(espColor.R, espColor.G, espColor.B)
+colorPreview.Text = ""
+local cpCorner = Instance.new("UICorner", colorPreview); cpCorner.CornerRadius = UDim.new(0,6)
+
 local function enableESPForPlayer(p)
 	if not p or p == LocalPlayer then return end
 	local ch = p.Character
@@ -76,19 +104,5 @@ Players.PlayerRemoving:Connect(function(p)
 	if p == currentTarget then setTarget(nil, true) end
 end)
 
--- AutoJump helpers (robust)
-local function isOnGround(humanoid, hrp)
-	if not humanoid or not hrp then return false end
-	-- Prefer Humanoid.FloorMaterial where possible
-	local ok, state = pcall(function() return humanoid:GetState() end)
-	if ok and state then
-		if state == Enum.HumanoidStateType.Seated or state == Enum.HumanoidStateType.PlatformStanding then return true end
-	end
-	-- raycast down check
-	local r = raycastDown(hrp.Position + Vector3.new(0,0.5,0), 3, LocalPlayer.Character)
-	if r and r.Instance then return true end
-	-- fallback use Humanoid.FloorMaterial property if available
-	local fmat = humanoid.FloorMaterial
-	if fmat and fmat ~= Enum.Material.Air then return true end
-	return false
-end
+
+-- (END of extracted ESP block)
