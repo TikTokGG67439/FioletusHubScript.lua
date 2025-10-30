@@ -111,6 +111,26 @@ local function raycastDown(origin, maxDist, ignoreInst)
 	return res
 end
 
+
+-- CheckWall helper: returns true if target HRP is visible from camera (not behind wall)
+local function isTargetVisibleFromCamera(targetHRP)
+    if not targetHRP then return true end
+    local cam = workspace.CurrentCamera
+    if not cam then return true end
+    local origin = cam.CFrame.Position
+    local dir = (targetHRP.Position - origin)
+    local rp = RaycastParams.new()
+    rp.FilterType = Enum.RaycastFilterType.Blacklist
+    rp.FilterDescendantsInstances = {}
+    if LocalPlayer.Character then table.insert(rp.FilterDescendantsInstances, LocalPlayer.Character) end
+    if targetHRP.Parent then table.insert(rp.FilterDescendantsInstances, targetHRP.Parent) end
+    local res = Workspace:Raycast(origin, dir, rp)
+    if not res then return true end
+    if res.Instance and targetHRP and res.Instance:IsDescendantOf(targetHRP.Parent) then return true end
+    return false
+end
+
+
 -- PERSISTENCE: store values under Player to survive respawn; also use Attributes if present
 local persistFolder = nil
 local function ensurePersistFolder()
@@ -562,7 +582,7 @@ local lookAimEnabled = false
 local lookAimTargetPart = "Head"
 local noFallEnabled = false
 local noFallThreshold = 4 -- studs
-local pathingEnabled = false
+local checkWallEnabled = false
 
 -- PERSISTENCE helpers (use both attribute+values)
 local function saveState()
@@ -584,7 +604,7 @@ local function saveState()
 	writePersistValue("Strafe_lookAimPart", lookAimTargetPart)
 	writePersistValue("Strafe_noFall", noFallEnabled and 1 or 0)
 	writePersistValue("Strafe_noFallThreshold", noFallThreshold)
-	writePersistValue("Strafe_pathing", pathingEnabled and 1 or 0)
+	writePersistValue("Strafe_checkWall", checkWallEnabled and 1 or 0)
 	writePersistValue("Strafe_lookAimStrength", tostring(getLookAimStrength and getLookAimStrength() or 0.12))
 	writePersistValue("Strafe_aimView", aimViewEnabled and 1 or 0)
 	writePersistValue("Strafe_aimViewMode", aimViewRotateMode)
@@ -627,7 +647,7 @@ local function loadState()
 	lookAimTargetPart = tostring(readPersistValue("Strafe_lookAimPart", lookAimTargetPart))
 	noFallEnabled = (tonumber(readPersistValue("Strafe_noFall", noFallEnabled and 1 or 0)) or 0) ~= 0
 	noFallThreshold = tonumber(readPersistValue("Strafe_noFallThreshold", noFallThreshold)) or noFallThreshold
-	pathingEnabled = (tonumber(readPersistValue("Strafe_pathing", pathingEnabled and 1 or 0)) or 0) ~= 0
+	checkWallEnabled = (tonumber(readPersistValue("Strafe_checkWall", checkWallEnabled and 1 or 0)) or 0) ~= 0
 
 	-- load aimView range and lookAim strength if present
 	local avr = tonumber(readPersistValue("Strafe_aimViewRange", orbitRadius)) or orbitRadius
@@ -1578,8 +1598,8 @@ pathBtn.Text = "Pathing: OFF"
 styleButton(pathBtn)
 
 pathBtn.MouseButton1Click:Connect(function()
-	pathingEnabled = not pathingEnabled
-	pathBtn.Text = "Pathing: " .. (pathingEnabled and "ON" or "OFF")
+	checkWallEnabled = not checkWallEnabled
+	pathBtn.Text = "Pathing: " .. (checkWallEnabled and "ON" or "OFF")
 	saveState()
 end)
 
@@ -1836,7 +1856,7 @@ RunService.RenderStepped:Connect(function(dt)
 	local targetPos = targetHRP.Position + Vector3.new(ox, 1.2, oz)
 
 	-- Pathing: if enabled and direct line blocked, try to get a sample waypoint
-	if pathingEnabled then
+	if checkWallEnabled then
 		local rpParams = RaycastParams.new()
 		rpParams.FilterType = Enum.RaycastFilterType.Blacklist
 		rpParams.FilterDescendantsInstances = {LocalPlayer.Character, targetHRP.Parent}
