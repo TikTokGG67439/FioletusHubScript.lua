@@ -28,7 +28,7 @@ local function safeHttpGet(url)
     end
 end
 
-local LOGIC_URL = "PASTE_RAW_URL_HERE/FioletusLogic1.txt" -- << replace with your raw file URL
+local LOGIC_URL = "https://raw.githubusercontent.com/TikTokGG67439/FioletusHubScript.lua/refs/heads/main/FioletusLogic2.lua" -- << replace with your raw file URL
 local VISUALS_URL = "PASTE_RAW_URL_HERE/FioletusLogic2.txt" -- << replace with your raw file URL
 
 -- Fetch & execute Logic 1
