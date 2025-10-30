@@ -15,10 +15,6 @@ local Camera = workspace.CurrentCamera
 -- FioletusLogic1 (standalone)
 -- Split file generated from StrafeScript1498_final_v3_fixed_pathing.txt
 -- Lines: 1-172
--- File: FioletusLogic1.txt
-
--myclient.lua
--For use only in [MyGameName] private development builds.
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
