@@ -1,69 +1,35 @@
-local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
-local UserInputService = game:GetService("UserInputService")
-local TweenService = game:GetService("TweenService")
-local Workspace = game:GetService("Workspace")
-local HttpService = game:GetService("HttpService")
-local LocalPlayer = Players.LocalPlayer
-local PlayerId = LocalPlayer and LocalPlayer.UserId or 0
-local Camera = workspace.CurrentCamera
+-- MainScript_bootloader.txt
+-- This Main script loads remote logic and visuals via HttpGet (as requested).
+-- It then continues with the original main tail from the uploaded script.
+local LOGIC1_URL = "https://raw.githubusercontent.com/TikTokGG67439/FioletusHubScript.lua/refs/heads/main/FioletusLogic1.lua"
+local LOGIC2_URL = "https://raw.githubusercontent.com/TikTokGG67439/FioletusHubScript.lua/refs/heads/main/FioletusLogic2.lua"
 
--- End of header
-
-
-
--- MainScript (standalone bootloader)
--- MainScript (bootloader) - READY for hosting as raw .txt on a server (e.g. GitHub raw)
--- Replace the two URL placeholders with the actual raw URLs where you'll host FioletusLogic1.txt and FioletusLogic2.txt
--- This script uses game:HttpGet + loadstring which is the common pattern for executors that support it.
-
-local function safeHttpGet(url)
-    if type(game) == "table" and game.HttpGet then
-        return game:HttpGet(url)
-    elseif game:GetService and game:GetService("HttpService") then
-        -- Not typical; attempt HttpService:GetAsync as fallback (requires HttpEnabled)
-        return game:GetService("HttpService"):GetAsync(url)
-    else
-        error("No HttpGet available in this environment. Replace loader with local contents or use executor that supports HttpGet.")
+local function safeLoadUrl(url)
+    local ok, res = pcall(function() return game:HttpGet(url, true) end)
+    if not ok then
+        warn("HttpGet failed for", url, res)
+        return nil, res
     end
+    return res, nil
 end
 
-local LOGIC_URL = "PASTE_RAW_URL_HERE/FioletusLogic1.txt" -- << replace with your raw file URL
-local VISUALS_URL = "PASTE_RAW_URL_HERE/FioletusLogic2.txt" -- << replace with your raw file URL
-
--- Fetch & execute Logic 1
-local ok, res = pcall(function()
-    local code = safeHttpGet(LOGIC_URL)
-    local fn = loadstring(code)
-    return fn and fn()
+pcall(function()
+    local code, err = safeLoadUrl(LOGIC1_URL)
+    if code then
+        local fn, lerr = loadstring(code)
+        if fn then pcall(fn) else warn("loadstring failed for LOGIC1:", lerr) end
+    end
 end)
-if not ok then
-    warn("Failed to load FioletusLogic1 from URL:", res)
-else
-    print("FioletusLogic1 loaded OK")
-end
 
--- Fetch & execute Visuals (UI)
-local ok2, res2 = pcall(function()
-    local code = safeHttpGet(VISUALS_URL)
-    local fn = loadstring(code)
-    return fn and fn()
+pcall(function()
+    local code, err = safeLoadUrl(LOGIC2_URL)
+    if code then
+        local fn, lerr = loadstring(code)
+        if fn then pcall(fn) else warn("loadstring failed for LOGIC2:", lerr) end
+    end
 end)
-if not ok2 then
-    warn("Failed to load FioletusLogic2 from URL:", res2)
-else
-    print("FioletusLogic2 loaded OK")
-end
 
--- If you prefer to host everything in one file, paste the contents of the two files below directly
--- (or use the two generated files as-is when uploading to a raw host).
-
-
-
--- Original tail (main loop / cleanup etc.)
--- Split file generated from StrafeScript1498_final_v3_fixed_pathing.txt
--- Lines: 1698-1990
--- File: MainScript.txt
+-- Original main tail follows:
 
 -- MAIN LOOP
 local startTick = tick()
