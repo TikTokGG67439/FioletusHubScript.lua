@@ -596,21 +596,7 @@ local function saveState()
 	if sliderForce and sliderForce.GetValue then writePersistValue('Strafe_sliderForce', tostring(sliderForce.GetValue())) end
 	if sliderSearch and sliderSearch.GetValue then writePersistValue('Strafe_sliderSearch', tostring(sliderSearch.GetValue())) end
 	if lookAimStrengthSlider and lookAimStrengthSlider.GetValue then writePersistValue('Strafe_lookAimStrength', tostring(lookAimStrengthSlider.GetValue())) end
-	if avSlider and avSlider.GetValue then writePersistValue('Strafe_aimViewRange', tostring(avSlider.GetValue())) 
-
--- persist new visuals/ui settings
-writePersistValue('Strafe_targetEsp', targetEspEnabled and 1 or 0)
-writePersistValue('Strafe_targetEffectType', targetEffectType or 'Circle')
-writePersistValue('Strafe_effectR', effectColor.R)
-writePersistValue('Strafe_effectG', effectColor.G)
-writePersistValue('Strafe_effectB', effectColor.B)
-writePersistValue('Strafe_effectSpeed', effectSpeed)
-writePersistValue('Strafe_effectStrength', effectStrength)
-writePersistValue('Strafe_fov', (Camera and Camera.FieldOfView) or readPersistValue('Strafe_fov',70))
-writePersistValue('Strafe_uiColorA', readPersistValue('Strafe_uiColorA', '200,50,200'))
-writePersistValue('Strafe_uiColorB', readPersistValue('Strafe_uiColorB', '120,200,120'))
-writePersistValue('Strafe_uiDual', readPersistValue('Strafe_uiDual',0))
-end
+	if avSlider and avSlider.GetValue then writePersistValue('Strafe_aimViewRange', tostring(avSlider.GetValue())) end
 
 end
 
@@ -632,10 +618,6 @@ local function loadState()
 	if ch then chargeHotkeyStr = tostring(ch) end
 	local sr = tonumber(readPersistValue("Strafe_searchRadius", SEARCH_RADIUS_DEFAULT)) or SEARCH_RADIUS_DEFAULT
 	sliderSearch.SetValue(sr)
-local avr = tonumber(readPersistValue("Strafe_aimViewRange", aimViewRange)) or aimViewRange
-aimViewRange = avr
--- if avSlider exists (created later by UI factory), set its value; otherwise it's safe because UI will call loadState again or we set on creation
-pcall(function() if avSlider and avSlider.SetValue then avSlider.SetValue(tonumber(aimViewRange) or orbitRadius) end end)
 	espEnabled = (tonumber(readPersistValue("Strafe_esp", espEnabled and 1 or 0)) or 0) ~= 0
 	local rcol = tonumber(readPersistValue("Strafe_espR", espColor.R)) or espColor.R
 	local gcol = tonumber(readPersistValue("Strafe_espG", espColor.G)) or espColor.G
@@ -1780,23 +1762,18 @@ RunService.RenderStepped:Connect(function(dt)
 		infoLabel.Text = ("Nearest: %s | Dist: %.1f | Dir: %s | R: %.2f"):format(tostring(currentTarget.Name), distToMe, (orbitDirection==1 and "CW" or "CCW"), orbitRadius)
 	end
 
-	-- NoFall check (throttled, robust): if enabled and no ground beneath target within threshold -> drop target and fully clean up
+	-- NoFall check (throttled): if enabled and no ground beneath target within threshold -> drop target
 	if noFallEnabled and targetHRP then
 		if now - lastNoFallCheck > 0.12 then
 			lastNoFallCheck = now
-			local ok, res = pcall(function()
+			local ok, under = pcall(function()
 				if currentTarget and currentTarget.Character then
 					return raycastDown(targetHRP.Position + Vector3.new(0,1,0), noFallThreshold, currentTarget.Character)
 				end
-				return nil
+				return true
 			end)
-			local hasGround = (ok and res and res.Instance ~= nil)
-			-- if raycast failed (not ok) or there is no ground -> fully clear target and cleanup
-			if (not ok) or (not hasGround) then
-				-- full cleanup: clear target, mode objects and ring
+			if ok and (under == nil or under == false) then
 				setTarget(nil, true)
-				destroyModeObjects()
-				clearRing()
 				return
 			end
 		end
@@ -2014,297 +1991,6 @@ end)
 
 
 
-
-
--- ======= BEGIN: Visuals / TargetESP / FOV / UI Configure additions =======
--- VisualFrame: a parallel frame to MainFrame containing visuals-related controls (PlayerESP moved here)
-local visualFrame = Instance.new("Frame")
-visualFrame.Name = "VisualFrame"
-visualFrame.Size = FRAME_SIZE
-visualFrame.Position = UI_POS
-visualFrame.BackgroundColor3 = Color3.fromRGB(16,29,31)
-visualFrame.Active = true
-visualFrame.Draggable = true
-visualFrame.Visible = false
-visualFrame.Parent = screenGui
-
-local visualCorner = Instance.new("UICorner", visualFrame); visualCorner.CornerRadius = UDim.new(0,10)
-local visualStroke = Instance.new("UIStroke", visualFrame); visualStroke.Thickness = 1.6; visualStroke.Color = Color3.fromRGB(200,100,180)
-
--- Visuals toggle button on MainFrame
-local visualsBtn = Instance.new("TextButton")
-visualsBtn.Size = UDim2.new(0.24, -6, 0, 36)
-visualsBtn.Position = UDim2.new(0.48, 6, 0, 148)
-visualsBtn.Text = "Visuals"
-visualsBtn.Parent = frame
-styleButton(visualsBtn)
-
--- Back button on VisualFrame to return to MainFrame
-local backBtn = Instance.new("TextButton")
-backBtn.Size = UDim2.new(0.2, -6, 0, 44)
-backBtn.Position = UDim2.new(0, 6, 0, 66)
-backBtn.Text = "Back"
-backBtn.Parent = visualFrame
-styleButton(backBtn)
-
-visualsBtn.MouseButton1Click:Connect(function()
-	frame.Visible = false
-	visualFrame.Visible = true
-	saveState()
-end)
-backBtn.MouseButton1Click:Connect(function()
-	frame.Visible = true
-	visualFrame.Visible = false
-	saveState()
-end)
-
--- Move PlayerESP controls into VisualFrame (if espBtn exists)
-pcall(function()
-	if espBtn and espBtn.Parent and espBtn.Parent == frame then
-		espBtn.Parent = visualFrame
-	end
-	if espGearBtn and espGearBtn.Parent and espGearBtn.Parent == frame then
-		espGearBtn.Parent = visualFrame
-	end
-end)
-
--- TargetESP toggle and small config widget
-local targetEspBtn = Instance.new("TextButton")
-targetEspBtn.Size = UDim2.new(0.24, -6, 0, 36)
-targetEspBtn.Position = UDim2.new(0.76, 6, 0, 188)
-targetEspBtn.Text = "TargetESP: OFF"
-targetEspBtn.Parent = visualFrame
-styleButton(targetEspBtn)
-
-local targetConfigMini = Instance.new("Frame")
-targetConfigMini.Size = UDim2.new(0, 260, 0, 130)
-targetConfigMini.Position = UDim2.new(0.5, -130, 0.5, -65)
-targetConfigMini.BackgroundColor3 = Color3.fromRGB(12,20,22)
-targetConfigMini.Visible = false
-targetConfigMini.Parent = visualFrame
-local tcmCorner = Instance.new("UICorner", targetConfigMini); tcmCorner.CornerRadius = UDim.new(0,8)
-local tcmStroke = Instance.new("UIStroke", targetConfigMini); tcmStroke.Thickness = 1.2; tcmStroke.Color = Color3.fromRGB(180,40,120)
-
--- Buttons for Circle / Sneak / Fire / Star (exclusive)
-local effNames = {"Circle", "Sneak", "Fire", "Star"}
-local effectButtons = {}
-local targetEffectType = readPersistValue("Strafe_targetEffectType", "Circle") or "Circle"
-local effectColor = { R = tonumber(readPersistValue("Strafe_effectR", 255)) or 255, G = tonumber(readPersistValue("Strafe_effectG", 80)) or 80, B = tonumber(readPersistValue("Strafe_effectB", 240)) or 240 }
-local effectSpeed = tonumber(readPersistValue("Strafe_effectSpeed", 1)) or 1
-local effectStrength = tonumber(readPersistValue("Strafe_effectStrength", 1)) or 1
-
-for i,name in ipairs(effNames) do
-	local btn = Instance.new("TextButton")
-	btn.Size = UDim2.new(0.48, -6, 0, 30)
-	btn.Position = UDim2.new(((i-1)%2)*0.5 + 0.02, 6, math.floor((i-1)/2)*0.5 + 0.05, 6)
-	btn.Text = name
-	btn.Parent = targetConfigMini
-	styleButton(btn)
-	effectButtons[name] = btn
-	btn.MouseButton1Click:Connect(function()
-		targetEffectType = name
-		-- update highlight
-		for n,b in pairs(effectButtons) do
-			if n == name then b.BackgroundColor3 = Color3.fromRGB(100,40,120) else b.BackgroundColor3 = Color3.fromRGB(51,38,53) end
-		end
-		writePersistValue("Strafe_targetEffectType", targetEffectType)
-	end)
-end
-
--- RGB sliders and previews
-local rSlider = Instance.new("TextBox"); rSlider.Size = UDim2.new(0.28, -6, 0, 26); rSlider.Position = UDim2.new(0.02,6,0.6,6); rSlider.Text = tostring(effectColor.R); rSlider.Parent = targetConfigMini; styleTextBox(rSlider)
-local gSlider = Instance.new("TextBox"); gSlider.Size = UDim2.new(0.28, -6, 0, 26); gSlider.Position = UDim2.new(0.36,6,0.6,6); gSlider.Text = tostring(effectColor.G); gSlider.Parent = targetConfigMini; styleTextBox(gSlider)
-local bSlider = Instance.new("TextBox"); bSlider.Size = UDim2.new(0.28, -6, 0, 26); bSlider.Position = UDim2.new(0.70,6,0.6,6); bSlider.Text = tostring(effectColor.B); bSlider.Parent = targetConfigMini; styleTextBox(bSlider)
-
-local speedBox = Instance.new("TextBox"); speedBox.Size = UDim2.new(0.48, -6, 0, 26); speedBox.Position = UDim2.new(0.02,6,0.8,6); speedBox.Text = tostring(effectSpeed); speedBox.Parent = targetConfigMini; styleTextBox(speedBox)
-local strengthBox = Instance.new("TextBox"); strengthBox.Size = UDim2.new(0.48, -6, 0, 26); strengthBox.Position = UDim2.new(0.5,6,0.8,6); strengthBox.Text = tostring(effectStrength); strengthBox.Parent = targetConfigMini; styleTextBox(strengthBox)
-
--- Apply changes from textboxes to persisted variables
-local function applyTargetConfigFromUI()
-	local r = tonumber(rSlider.Text) or effectColor.R
-	local g = tonumber(gSlider.Text) or effectColor.G
-	local b = tonumber(bSlider.Text) or effectColor.B
-	effectColor.R, effectColor.G, effectColor.B = clamp(math.floor(r),1,255), clamp(math.floor(g),1,255), clamp(math.floor(b),1,255)
-	local sp = tonumber(speedBox.Text) or effectSpeed
-	effectSpeed = clamp(sp, 0.05, 10)
-	local st = tonumber(strengthBox.Text) or effectStrength
-	effectStrength = clamp(st, 0, 8)
-	writePersistValue('Strafe_effectR', effectColor.R)
-	writePersistValue('Strafe_effectG', effectColor.G)
-	writePersistValue('Strafe_effectB', effectColor.B)
-	writePersistValue('Strafe_effectSpeed', effectSpeed)
-	writePersistValue('Strafe_effectStrength', effectStrength)
-end
-
-rSlider.FocusLost:Connect(applyTargetConfigFromUI)
-gSlider.FocusLost:Connect(applyTargetConfigFromUI)
-bSlider.FocusLost:Connect(applyTargetConfigFromUI)
-speedBox.FocusLost:Connect(applyTargetConfigFromUI)
-strengthBox.FocusLost:Connect(applyTargetConfigFromUI)
-
--- toggle mini config
-local miniOpen = false
-local miniToggleBtn = Instance.new("TextButton")
-miniToggleBtn.Size = UDim2.new(0.18, -6, 0, 30)
-miniToggleBtn.Position = UDim2.new(0.76, 6, 0, 148)
-miniToggleBtn.Text = "Cfg"
-miniToggleBtn.Parent = visualFrame
-styleButton(miniToggleBtn)
-
-miniToggleBtn.MouseButton1Click:Connect(function()
-	targetConfigMini.Visible = not targetConfigMini.Visible
-end)
-
--- Keep targetEsp button state
-local targetEspEnabled = (tonumber(readPersistValue('Strafe_targetEsp', 0)) or 0) ~= 0
-local function updateTargetEspUI()
-	targetEspBtn.Text = "TargetESP: " .. (targetEspEnabled and "ON" or "OFF")
-end
-updateTargetEspUI()
-
-targetEspBtn.MouseButton1Click:Connect(function()
-	targetEspEnabled = not targetEspEnabled
-	writePersistValue('Strafe_targetEsp', targetEspEnabled and 1 or 0)
-	updateTargetEspUI()
-end)
-
--- FOV slider (simple)
-local fovBox = Instance.new("TextBox")
-fovBox.Size = UDim2.new(0.24, -6, 0, 36)
-fovBox.Position = UDim2.new(0.02, 6, 0, 188)
-fovBox.Text = tostring(tonumber(readPersistValue('Strafe_fov', 70)) or 70)
-fovBox.Parent = visualFrame
-styleTextBox(fovBox)
-fovBox.FocusLost:Connect(function()
-	local v = tonumber(fovBox.Text) or 70
-	pcall(function() if Camera then Camera.FieldOfView = v end end)
-	writePersistValue('Strafe_fov', v)
-end)
--- apply stored FOV on start
-pcall(function() local v = tonumber(readPersistValue('Strafe_fov', 70)) if Camera then Camera.FieldOfView = v end end)
-
--- UI Configure Frame: choose 1 or 2 stroke colors and apply across UI
-local uiConfigBtn = Instance.new("TextButton")
-uiConfigBtn.Size = UDim2.new(0.24, -6, 0, 36)
-uiConfigBtn.Position = UDim2.new(0.28, 6, 0, 188)
-uiConfigBtn.Text = "UI Configure"
-uiConfigBtn.Parent = visualFrame
-styleButton(uiConfigBtn)
-
-local uiConfigFrame = Instance.new("Frame")
-uiConfigFrame.Size = UDim2.new(0, 420, 0, 220)
-uiConfigFrame.Position = UDim2.new(0.5, -210, 0.45, -110)
-uiConfigFrame.BackgroundColor3 = Color3.fromRGB(10,18,20)
-uiConfigFrame.Visible = false
-uiConfigFrame.Parent = visualFrame
-local ucfCorner = Instance.new("UICorner", uiConfigFrame); ucfCorner.CornerRadius = UDim.new(0,8)
-local ucfStroke = Instance.new("UIStroke", uiConfigFrame); ucfStroke.Thickness = 1.2; ucfStroke.Color = Color3.fromRGB(200,80,160)
-
--- two color pickers (textboxes for simplicity)
-local uiColorABox = Instance.new("TextBox"); uiColorABox.Size = UDim2.new(0.43, -6, 0, 34); uiColorABox.Position = UDim2.new(0.02,6,0.04,6); uiColorABox.Text = readPersistValue('Strafe_uiColorA','200,50,200'); uiColorABox.Parent = uiConfigFrame; styleTextBox(uiColorABox)
-local uiColorBBox = Instance.new("TextBox"); uiColorBBox.Size = UDim2.new(0.43, -6, 0, 34); uiColorBBox.Position = UDim2.new(0.55,6,0.04,6); uiColorBBox.Text = readPersistValue('Strafe_uiColorB','120,200,120'); uiColorBBox.Parent = uiConfigFrame; styleTextBox(uiColorBBox)
-local uiDualToggle = Instance.new("TextButton"); uiDualToggle.Size = UDim2.new(0.2, -6, 0, 34); uiDualToggle.Position = UDim2.new(0.39,6,0.2,6); uiDualToggle.Text = (tonumber(readPersistValue('Strafe_uiDual',0))==1) and 'Dual: ON' or 'Dual: OFF'; uiDualToggle.Parent = uiConfigFrame; styleButton(uiDualToggle)
-
-local function parseColorTxt(txt, def)
-	local ok = {200,50,200}
-	local parts = {}
-	for num in txt:gmatch('%d+') do table.insert(parts, tonumber(num)) end
-	if #parts >= 3 then return Color3.fromRGB(parts[1], parts[2], parts[3]) end
-	if def then return Color3.fromRGB(def[1],def[2],def[3]) end
-	return Color3.fromRGB(200,50,200)
-end
-
-uiColorABox.FocusLost:Connect(function()
-	writePersistValue('Strafe_uiColorA', uiColorABox.Text)
-	pcall(function() uiConfigApply() end)
-end)
-uiColorBBox.FocusLost:Connect(function()
-	writePersistValue('Strafe_uiColorB', uiColorBBox.Text)
-	pcall(function() uiConfigApply() end)
-end)
-uiDualToggle.MouseButton1Click:Connect(function()
-	local nowv = (tonumber(readPersistValue('Strafe_uiDual',0))==1) and 1 or 0
-	nowv = 1 - nowv
-	writePersistValue('Strafe_uiDual', nowv)
-	uiDualToggle.Text = (nowv==1) and 'Dual: ON' or 'Dual: OFF'
-	pcall(function() uiConfigApply() end)
-end)
-
--- apply UI configure: update UIStroke colors across frame + visualFrame
-function uiConfigApply()
-	local ca = parseColorTxt(readPersistValue('Strafe_uiColorA','200,50,200'), {200,50,200})
-	local cb = parseColorTxt(readPersistValue('Strafe_uiColorB','120,200,120'), {120,200,120})
-	local dual = (tonumber(readPersistValue('Strafe_uiDual',0))==1)
-	-- fetch UIStroke instances in main frames
-	local function applyToFrame(fr)
-		for _,inst in ipairs(fr:GetDescendants()) do
-			if inst:IsA('UIStroke') then
-				if dual then
-					-- simple time-based lerp between ca and cb
-					local t = (tick() % 3) / 3
-					inst.Color = Color3.fromRGB(
-						math.floor(lerp(ca.R*255, cb.R*255, t)),
-						math.floor(lerp(ca.G*255, cb.G*255, t)),
-						math.floor(lerp(ca.B*255, cb.B*255, t))
-					)
-				else
-					inst.Color = ca
-				end
-			end
-		end
-	end
-	applyToFrame(frame)
-	applyToFrame(visualFrame)
-end
-
-uiConfigBtn.MouseButton1Click:Connect(function() uiConfigFrame.Visible = not uiConfigFrame.Visible end)
-
--- call apply once
-pcall(function() uiConfigApply() end)
-
--- Hook into RenderStepped to apply TargetESP visuals when active
-local lastEffectTick = 0
-RunService.RenderStepped:Connect(function(dt)
-	pcall(function()
-		-- persistently update UIStroke dual lerp when dual mode on
-		uiConfigApply()
-		-- update effect params from persisted values (keeps controls in sync)
-		effectSpeed = tonumber(readPersistValue('Strafe_effectSpeed', effectSpeed)) or effectSpeed
-		effectStrength = tonumber(readPersistValue('Strafe_effectStrength', effectStrength)) or effectStrength
-		effectColor.R = tonumber(readPersistValue('Strafe_effectR', effectColor.R)) or effectColor.R
-		effectColor.G = tonumber(readPersistValue('Strafe_effectG', effectColor.G)) or effectColor.G
-		effectColor.B = tonumber(readPersistValue('Strafe_effectB', effectColor.B)) or effectColor.B
-
-		if targetEspEnabled and currentTarget and targetHRP and #ringParts>0 then
-			-- apply effect color
-			local col = Color3.fromRGB(effectColor.R, effectColor.G, effectColor.B)
-			for i,part in ipairs(ringParts) do
-				if part and part.Parent then
-					-- base color
-					part.Color = col
-					-- behavior by type
-					if targetEffectType == 'Sneak' then
-						local s = 1 + math.sin(tick()*0.9*effectSpeed + i*0.2) * 0.08 * effectStrength
-						part.Size = Vector3.new(part.Size.X * s, part.Size.Y * s, part.Size.Z * s)
-					elseif targetEffectType == 'Fire' then
-						-- flicker transparency + small upward offset
-						part.Transparency = math.clamp(0.12 + (math.noise(i*0.1, tick()*2*effectSpeed)-0.5)*0.12*effectStrength, 0, 0.7)
-					elseif targetEffectType == 'Star' then
-						-- star effect: create tiny stars orbiting (cheap approach: adjust Neon intensity by transparency and bob)
-						local bob = math.sin(tick()*1.5*effectSpeed + i*0.7) * 0.16 * effectStrength
-						part.CFrame = part.CFrame * CFrame.new(0, bob, 0)
-					else
-						-- Circle: restore default props (transparency in a safe range)
-						part.Transparency = math.clamp(part.Transparency, 0, 0.6)
-					end
-				end
-			end
-			-- maintain ring creation if destroyed
-			if #ringParts == 0 then createRingSegments(SEGMENTS) end
-		end
-	end)
-end)
--- ======= END: Visuals / TargetESP / FOV / UI Configure additions =======
 -- live-sync sliders into runtime variables so sliders *always* affect behavior
 RunService.RenderStepped:Connect(function()
     pcall(function()
@@ -2328,3 +2014,650 @@ applyModeUI()
 updateESP(espEnabled)
 updateAutoJumpUI()
 saveState()
+
+
+-- =========================
+-- PATCH BLOCK (v9) - appended optimizations and safer overrides
+-- Created to reduce CheckWall lag, ensure NoFall cleanup, improve AimView slider persistence,
+-- and provide safer fallbacks. Inserted at file end to override earlier definitions where possible.
+-- =========================
+do
+    local RunService = game:GetService("RunService")
+    local Workspace = game:GetService("Workspace")
+    local Players = game:GetService("Players")
+    local LocalPlayer = Players.LocalPlayer
+
+    -- Lightweight shared RaycastParams (reused to avoid allocations in tight loops)
+    local sharedRp = RaycastParams.new()
+    sharedRp.FilterType = Enum.RaycastFilterType.Blacklist
+
+    -- Simple cache for path sampling to avoid repeated heavy work
+    if not _G.__strafe_safe_cache then _G.__strafe_safe_cache = {} end
+    local PATH_CACHE = _G.__strafe_safe_cache
+    local PATH_CACHE_TTL = 3.5
+
+    -- Safe, limited sampling replacement for samplePointAround
+    local function samplePointAround_safe(targetPos, ignoreInst)
+        -- Limit total checks to avoid spikes
+        local maxRings = 3
+        local anglesPerRing = 12 -- modest sampling
+        local step = 1.4
+        for r = 1, maxRings do
+            local dist = step * r
+            for i = 1, anglesPerRing do
+                local ang = (i / anglesPerRing) * math.pi * 2
+                local p = targetPos + Vector3.new(math.cos(ang) * dist, 0, math.sin(ang) * dist)
+                p = p + Vector3.new(0, 1.2, 0)
+                sharedRp.FilterDescendantsInstances = ignoreInst and {ignoreInst} or {}
+                local res = Workspace:Raycast(p, Vector3.new(0, -3, 0), sharedRp)
+                if res and res.Position then
+                    -- quick accept; minimize further expensive checks
+                    return Vector3.new(p.X, res.Position.Y + 1.2, p.Z)
+                end
+            end
+        end
+        return nil
+    end
+
+    -- Safer, throttled findAlternateWaypoint that reuses cache and limits raycasts
+    local function findAlternateWaypoint_safe(playerHRP, targetHRP)
+        if not playerHRP or not targetHRP then return nil end
+        local startPos = playerHRP.Position
+        local goalPos = targetHRP.Position + Vector3.new(0,1.2,0)
+        local cacheKey = tostring(math.floor(goalPos.X*10))..':'..tostring(math.floor(goalPos.Y*10))..':'..tostring(math.floor(goalPos.Z*10))
+        local cached = PATH_CACHE[cacheKey]
+        if cached and (tick() - cached.time) < PATH_CACHE_TTL then
+            return cached.pos
+        end
+
+        -- quick direct path check
+        sharedRp.FilterDescendantsInstances = {LocalPlayer.Character, targetHRP.Parent}
+        local direct = Workspace:Raycast(startPos, goalPos - startPos, sharedRp)
+        if not direct then
+            PATH_CACHE[cacheKey] = {pos = nil, time = tick()}
+            return nil
+        end
+
+        -- limited sampling to avoid CPU spikes
+        local dist = (goalPos - startPos).Magnitude
+        local radii = {1.0, math.min(2.6, math.max(1.6, dist*0.18)), math.min(4.0, dist*0.28)}
+        local angleSamples = 12
+        for _, r in ipairs(radii) do
+            for i = 0, angleSamples - 1 do
+                local a = (i / angleSamples) * (2 * math.pi)
+                local cand = goalPos + Vector3.new(math.cos(a) * r, 0, math.sin(a) * r)
+                sharedRp.FilterDescendantsInstances = {LocalPlayer.Character, targetHRP.Parent}
+                local down = Workspace:Raycast(cand + Vector3.new(0,8,0), Vector3.new(0,-16,0), sharedRp)
+                if down then
+                    local candPos = Vector3.new(cand.X, down.Position.Y + 1.2, cand.Z)
+                    if (candPos - targetHRP.Position).Magnitude > 0.9 then
+                        local r1 = Workspace:Raycast(startPos, candPos - startPos, sharedRp)
+                        if not r1 then
+                            local r2 = Workspace:Raycast(candPos, goalPos - candPos, sharedRp)
+                            if not r2 then
+                                PATH_CACHE[cacheKey] = {pos = candPos, time = tick()}
+                                return candPos
+                            end
+                        end
+                    end
+                end
+            end
+        end
+
+        -- cheap fallback: step along line with larger steps
+        local steps = math.clamp(math.floor(dist / 4) + 1, 2, 6)
+        for i = 1, steps - 1 do
+            local p = startPos + (goalPos - startPos) * (i / steps)
+            sharedRp.FilterDescendantsInstances = {LocalPlayer.Character, targetHRP.Parent}
+            local down = Workspace:Raycast(p + Vector3.new(0,8,0), Vector3.new(0,-16,0), sharedRp)
+            if down then
+                local pPos = Vector3.new(p.X, down.Position.Y + 1.2, p.Z)
+                local r1 = Workspace:Raycast(startPos, pPos - startPos, sharedRp)
+                local r2 = Workspace:Raycast(pPos, goalPos - pPos, sharedRp)
+                if not r1 and not r2 then
+                    PATH_CACHE[cacheKey] = {pos = pPos, time = tick()}
+                    return pPos
+                end
+            end
+        end
+
+        PATH_CACHE[cacheKey] = {pos = nil, time = tick()}
+        return nil
+    end
+
+    -- Override global functions if present to safer ones
+    pcall(function()
+        if type(findAlternateWaypoint) == "function" then
+            findAlternateWaypoint = findAlternateWaypoint_safe
+        else
+            _G.findAlternateWaypoint = findAlternateWaypoint_safe
+        end
+    end)
+
+    if type(samplePointAround) == "function" then
+        samplePointAround = function(targetPos)
+            return samplePointAround_safe(targetPos, LocalPlayer.Character)
+        end
+    else
+        _G.samplePointAround = function(targetPos)
+            return samplePointAround_safe(targetPos, LocalPlayer.Character)
+        end
+    end
+
+    -- Ensure destroyModeObjects clears all created objects and disconnects connections
+    local function destroyModeObjects_safe()
+        pcall(function()
+            if alignObj then alignObj:Destroy() end; alignObj = nil
+            if attach0 then attach0:Destroy() end; attach0 = nil
+            if helperAttach then helperAttach:Destroy() end; helperAttach = nil
+            if helperPart then helperPart:Destroy() end; helperPart = nil
+            if bvObj then bvObj:Destroy() end; bvObj = nil
+            if bgObj then bgObj:Destroy() end; bgObj = nil
+            if lvObj then lvObj:Destroy() end; lvObj = nil
+            if vfObj then vfObj:Destroy() end; vfObj = nil
+            if fallbackForceBV then fallbackForceBV:Destroy() end; fallbackForceBV = nil
+            helperVel = Vector3.new(0,0,0)
+            -- disconnect target connections if any
+            if currentTargetCharConn then pcall(function() currentTargetCharConn:Disconnect() end); currentTargetCharConn = nil end
+            if currentTargetRemovingConn then pcall(function() currentTargetRemovingConn:Disconnect() end); currentTargetRemovingConn = nil end
+        end)
+    end
+
+    -- override
+    pcall(function() destroyModeObjects = destroyModeObjects_safe end)
+
+    -- Ensure setTarget(nil, true) truly clears everything and prevents immediate re-target for short cooldown
+    local _skipAutoTargetUntil = 0
+    local function setTarget_safe(player, forceClear)
+        if player == nil then
+            currentTarget = nil
+            clearRing()
+            destroyModeObjects_safe()
+            _skipAutoTargetUntil = tick() + 0.6 -- short block to prevent immediate re-targeting
+            return
+        end
+        -- existing behavior for setting target
+        currentTarget = player
+        clearRing()
+        destroyModeObjects_safe()
+        if player then
+            createRingSegments(SEGMENTS)
+            orbitAngle = math.random() * math.pi * 2
+            local myHRP = getHRP(LocalPlayer)
+            if myHRP then
+                if mode == "smooth" then createSmoothObjectsFor(myHRP)
+                elseif mode == "velocity" then createVelocityObjectsFor(myHRP)
+                elseif mode == "twisted" then createLinearObjectsFor(myHRP)
+                elseif mode == "force" then createForceObjectsFor(myHRP) end
+            end
+        end
+        -- re-establish connections safely
+        if currentTargetCharConn then pcall(function() currentTargetCharConn:Disconnect() end); currentTargetCharConn = nil end
+        if currentTargetRemovingConn then pcall(function() currentTargetRemovingConn:Disconnect() end); currentTargetRemovingConn = nil end
+        if currentTarget and currentTarget.Character then
+            local ok, ch = pcall(function() return currentTarget.Character end)
+            if ok and ch then
+                local humanoid = ch:FindFirstChildOfClass("Humanoid")
+                if humanoid then
+                    currentTargetCharConn = humanoid.Died:Connect(function() setTarget_safe(nil, true) end)
+                end
+            end
+            if currentTarget.CharacterRemoving then
+                currentTargetRemovingConn = currentTarget.CharacterRemoving:Connect(function() setTarget_safe(nil, true) end)
+            end
+        end
+        saveState()
+    end
+    pcall(function() setTarget = setTarget_safe end)
+
+    -- Hook AimView slider InputEnded to force saveState if slider exists
+    pcall(function()
+        if avSlider and avSlider.Container then
+            -- attempt to find thumb frame inside slider container and hook input end events for saving
+            -- but safest approach: poll InputEnded globally and save when not dragging any slider
+            UserInputService.InputEnded:Connect(function(input)
+                -- if no slider is being dragged, save state
+                local draggingNow = false
+                local checks = {sliderSpeed, sliderRadius, sliderForce, sliderSearch, avSlider}
+                for _, s in ipairs(checks) do
+                    if s and s.IsDragging and s.IsDragging() then draggingNow = true; break end
+                end
+                if not draggingNow then
+                    pcall(saveState)
+                end
+            end)
+        end
+    end)
+
+    -- Provide a safer checkWall fast function to be reused by the main loop if you choose to replace calls
+    _G.__strafe_safe_checkWall = function(originPos, targetPos, ignoreTable)
+        local now = tick()
+        -- throttle per-origin-target pair by caching short results
+        local key = tostring(math.floor(originPos.X*10))..":"..tostring(math.floor(originPos.Y*10))..":"..tostring(math.floor(originPos.Z*10))..":"..tostring(math.floor(targetPos.X*10))
+        local ent = PATH_CACHE["cw_"..key]
+        if ent and (now - ent.time) < 0.18 then
+            return ent.hit
+        end
+        sharedRp.FilterDescendantsInstances = ignoreTable or {LocalPlayer.Character}
+        local ok, res = pcall(function() return Workspace:Raycast(originPos, targetPos - originPos, sharedRp) end)
+        local hit = (ok and res and res.Instance) and true or false
+        PATH_CACHE["cw_"..key] = {hit = hit, time = now}
+        return hit
+    end
+
+    -- Periodic cache cleaner
+    spawn(function()
+        while true do
+            local tnow = tick()
+            for k,v in pairs(PATH_CACHE) do
+                if (tnow - v.time) > 8 then PATH_CACHE[k] = nil end
+            end
+            wait(6)
+        end
+    end)
+
+end
+-- End PATCH BLOCK
+
+
+
+-- =========================
+-- VISUALS MODULE (v10) - VisualFrame UI + PlayerESP + Target Visual Modes (Circle, Sneak, Fire, Star)
+-- Appended safely; uses pcall and checks to avoid conflicts. Saves settings via writePersistValue/readPersistValue when available.
+-- =========================
+do
+    local Players = game:GetService("Players")
+    local RunService = game:GetService("RunService")
+    local TweenService = game:GetService("TweenService")
+    local Workspace = game:GetService("Workspace")
+    local UserInputService = game:GetService("UserInputService")
+
+    local LocalPlayer = Players.LocalPlayer
+    if not LocalPlayer then return end
+    local playerGui = LocalPlayer:WaitForChild("PlayerGui")
+
+    -- ensure a single visuals GUI per player
+    local GUI_NAME = "StrafeVisuals_v10_" .. tostring(LocalPlayer.UserId)
+    local visGui = playerGui:FindFirstChild(GUI_NAME)
+    if not visGui then
+        visGui = Instance.new("ScreenGui")
+        visGui.Name = GUI_NAME
+        visGui.ResetOnSpawn = false
+        visGui.Parent = playerGui
+    end
+
+    -- try to find existing MainFrame in other GUIs to integrate button placement
+    local mainFrame = nil
+    for _, g in ipairs(playerGui:GetChildren()) do
+        if g:IsA("ScreenGui") then
+            local mf = g:FindFirstChild("MainFrame")
+            if mf then mainFrame = mf; break end
+        end
+    end
+
+    -- create VisualFrame
+    local visualFrame = visGui:FindFirstChild("VisualFrame")
+    if not visualFrame then
+        visualFrame = Instance.new("Frame")
+        visualFrame.Name = "VisualFrame"
+        visualFrame.Size = UDim2.new(0, 640, 0, 480)
+        visualFrame.Position = UDim2.new(0.5, -320, 0.5, -240)
+        visualFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+        visualFrame.BackgroundColor3 = Color3.fromRGB(18, 18, 20)
+        visualFrame.Visible = false
+        visualFrame.Parent = visGui
+        local corner = Instance.new("UICorner", visualFrame); corner.CornerRadius = UDim.new(0,12)
+        local stroke = Instance.new("UIStroke", visualFrame); stroke.Thickness = 2; stroke.Color = Color3.fromRGB(200,100,180)
+        local title = Instance.new("TextLabel", visualFrame); title.Size = UDim2.new(1,-24,0,44); title.Position = UDim2.new(0,12,0,8); title.BackgroundTransparency = 1; title.Font = Enum.Font.Arcade; title.TextSize = 22; title.Text = "Visuals"; title.TextColor3 = Color3.fromRGB(200,100,180)
+    end
+
+    -- create Visuals button (in mainFrame if available)
+    local visualsBtn = nil
+    if mainFrame then
+        visualsBtn = mainFrame:FindFirstChild("VisualsBtn")
+        if not visualsBtn then
+            visualsBtn = Instance.new("TextButton"); visualsBtn.Name = "VisualsBtn"; visualsBtn.Size = UDim2.new(0,120,0,34); visualsBtn.Position = UDim2.new(0.02, 8, 0.02, 8); visualsBtn.Text = "Visuals"; visualsBtn.Parent = mainFrame
+            local c = Instance.new("UICorner", visualsBtn); c.CornerRadius = UDim.new(0,6)
+            local s = Instance.new("UIStroke", visualsBtn); s.Thickness = 1.4; s.Color = Color3.fromRGB(200,100,180)
+        end
+    else
+        visualsBtn = visGui:FindFirstChild("VisualsBtn")
+        if not visualsBtn then
+            visualsBtn = Instance.new("TextButton"); visualsBtn.Name = "VisualsBtn"; visualsBtn.Size = UDim2.new(0,120,0,34); visualsBtn.Position = UDim2.new(0.02, 8, 0.02, 8); visualsBtn.Text = "Visuals"; visualsBtn.Parent = visGui
+            local c = Instance.new("UICorner", visualsBtn); c.CornerRadius = UDim.new(0,6)
+            local s = Instance.new("UIStroke", visualsBtn); s.Thickness = 1.4; s.Color = Color3.fromRGB(200,100,180)
+        end
+    end
+
+    -- Back button
+    local backBtn = visualFrame:FindFirstChild("BackBtn")
+    if not backBtn then
+        backBtn = Instance.new("TextButton"); backBtn.Name = "BackBtn"; backBtn.Size = UDim2.new(0,90,0,34); backBtn.Position = UDim2.new(0,12,0,56); backBtn.Text = "Back"; backBtn.Parent = visualFrame
+        local c = Instance.new("UICorner", backBtn); c.CornerRadius = UDim.new(0,6)
+        local s = Instance.new("UIStroke", backBtn); s.Thickness = 1.2; s.Color = Color3.fromRGB(200,100,180)
+    end
+
+    -- PlayerESP toggle inside VisualFrame
+    local playerESPBtn = visualFrame:FindFirstChild("PlayerESPBtn")
+    if not playerESPBtn then
+        playerESPBtn = Instance.new("TextButton"); playerESPBtn.Name = "PlayerESPBtn"; playerESPBtn.Size = UDim2.new(0,200,0,34); playerESPBtn.Position = UDim2.new(0,12,0,110); playerESPBtn.Text = "Player ESP: OFF"; playerESPBtn.Parent = visualFrame
+        local c = Instance.new("UICorner", playerESPBtn); c.CornerRadius = UDim.new(0,6)
+        local s = Instance.new("UIStroke", playerESPBtn); s.Thickness = 1.2; s.Color = Color3.fromRGB(200,100,180)
+    end
+
+    -- TargetESP toggle + small config button
+    local targetESPBtn = visualFrame:FindFirstChild("TargetESPBtn")
+    if not targetESPBtn then
+        targetESPBtn = Instance.new("TextButton"); targetESPBtn.Name = "TargetESPBtn"; targetESPBtn.Size = UDim2.new(0,200,0,34); targetESPBtn.Position = UDim2.new(0,220,0,110); targetESPBtn.Text = "Target ESP: OFF"; targetESPBtn.Parent = visualFrame
+        local c = Instance.new("UICorner", targetESPBtn); c.CornerRadius = UDim.new(0,6)
+        local s = Instance.new("UIStroke", targetESPBtn); s.Thickness = 1.2; s.Color = Color3.fromRGB(200,100,180)
+    end
+
+    local targetConfigBtn = visualFrame:FindFirstChild("TargetConfigBtn")
+    if not targetConfigBtn then
+        targetConfigBtn = Instance.new("TextButton"); targetConfigBtn.Name = "TargetConfigBtn"; targetConfigBtn.Size = UDim2.new(0,40,0,34); targetConfigBtn.Position = UDim2.new(0,432,0,110); targetConfigBtn.Text = "⚙"; targetConfigBtn.Parent = visualFrame
+        local c = Instance.new("UICorner", targetConfigBtn); c.CornerRadius = UDim.new(0,6)
+        local s = Instance.new("UIStroke", targetConfigBtn); s.Thickness = 1.2; s.Color = Color3.fromRGB(200,100,180)
+    end
+
+    -- Small popup for target visuals config
+    local targetConfig = visGui:FindFirstChild("TargetConfigFrame")
+    if not targetConfig then
+        targetConfig = Instance.new("Frame"); targetConfig.Name = "TargetConfigFrame"; targetConfig.Size = UDim2.new(0,320,0,260); targetConfig.Position = UDim2.new(0.5,-160,0.5,-130); targetConfig.BackgroundColor3 = Color3.fromRGB(20,20,24); targetConfig.Visible = false; targetConfig.Parent = visGui
+        local cc = Instance.new("UICorner", targetConfig); cc.CornerRadius = UDim.new(0,8)
+        local t = Instance.new("TextLabel", targetConfig); t.Size = UDim2.new(1,-12,0,32); t.Position = UDim2.new(0,6,0,8); t.BackgroundTransparency = 1; t.Text = "Target Visuals"; t.Font = Enum.Font.Arcade; t.TextScaled = true; t.TextColor3 = Color3.fromRGB(200,100,180)
+    end
+
+    local function smallButton(parent, name, posY)
+        local b = Instance.new("TextButton", parent); b.Name = name; b.Size = UDim2.new(0.48,-10,0,36); b.Position = UDim2.new(0.02,6,0,posY); b.Text = name; local c = Instance.new("UICorner", b); c.CornerRadius = UDim.new(0,6); local s = Instance.new("UIStroke", b); s.Thickness = 1.2; s.Color = Color3.fromRGB(200,100,180); return b
+    end
+
+    local btnCircle = targetConfig:FindFirstChild("Circle") or smallButton(targetConfig, "Circle", 44)
+    local btnSneak = targetConfig:FindFirstChild("Sneak") or smallButton(targetConfig, "Sneak", 92)
+    local btnFire = targetConfig:FindFirstChild("Fire") or smallButton(targetConfig, "Fire", 140)
+    local btnStar = targetConfig:FindFirstChild("Star") or smallButton(targetConfig, "Star", 188)
+
+    -- Color sliders (simple) + speed/strength sliders
+    local function createSimpleSlider(parent, y, label, minV, maxV, init)
+        local cont = Instance.new("Frame", parent); cont.Size = UDim2.new(1,-12,0,28); cont.Position = UDim2.new(0,6,0,y); cont.BackgroundTransparency = 1
+        local lbl = Instance.new("TextLabel", cont); lbl.Size = UDim2.new(0.5,0,1,0); lbl.Position = UDim2.new(0,6,0,0); lbl.BackgroundTransparency = 1; lbl.Text = label; lbl.Font = Enum.Font.Arcade; lbl.TextScaled = true; lbl.TextXAlignment = Enum.TextXAlignment.Left; lbl.TextColor3 = Color3.fromRGB(230,230,230)
+        local val = Instance.new("TextLabel", cont); val.Size = UDim2.new(0.5,-8,1,0); val.Position = UDim2.new(0.5,0,0,0); val.BackgroundTransparency = 1; val.Text = tostring(init); val.Font = Enum.Font.Arcade; val.TextScaled = true; val.TextXAlignment = Enum.TextXAlignment.Right; val.TextColor3 = Color3.fromRGB(230,230,230)
+        local bg = Instance.new("Frame", cont); bg.Size = UDim2.new(1,-12,0,8); bg.Position = UDim2.new(0,6,0,18); bg.BackgroundColor3 = Color3.fromRGB(40,40,40); bg.ClipsDescendants = true
+        local fill = Instance.new("Frame", bg); fill.Size = UDim2.new((init-minV)/(maxV-minV),0,1,0); fill.BackgroundColor3 = Color3.fromRGB(200,100,180)
+        local thumb = Instance.new("Frame", bg); thumb.Size = UDim2.new(0,12,0,12); thumb.AnchorPoint = Vector2.new(0.5,0.5); thumb.Position = UDim2.new((init-minV)/(maxV-minV),0,0.5,0); thumb.BackgroundColor3 = Color3.fromRGB(200,100,180)
+        local dragging = false
+        local function setFromX(x)
+            local abs = bg.AbsoluteSize.X
+            if abs <= 0 then return end
+            local rel = math.clamp(x/abs, 0, 1)
+            fill.Size = UDim2.new(rel,0,1,0)
+            thumb.Position = UDim2.new(rel,0,0.5,0)
+            local v = minV + (maxV-minV)*rel
+            val.Text = tostring(math.floor(v))
+            return math.floor(v)
+        end
+        bg.InputBegan:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseButton1 then dragging = true; setFromX(input.Position.X - bg.AbsolutePosition.X) end end)
+        UserInputService.InputChanged:Connect(function(input) if dragging and input.Position then setFromX(input.Position.X - bg.AbsolutePosition.X) end end)
+        bg.InputEnded:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseButton1 then dragging = false end end)
+        return {Container = cont, GetValue = function() return tonumber(val.Text) end, SetValue = function(v) val.Text = tostring(math.floor(v)); local rel = (v-minV)/(maxV-minV); fill.Size = UDim2.new(math.clamp(rel,0,1),0,1,0); thumb.Position = UDim2.new(math.clamp(rel,0,1),0,0.5,0) end}
+    end
+
+    local sR = targetConfig:FindFirstChild("RSlider") or createSimpleSlider(targetConfig, 44, "R", 0, 255, 200)
+    local sG = targetConfig:FindFirstChild("GSlider") or createSimpleSlider(targetConfig, 92, "G", 0, 255, 80)
+    local sB = targetConfig:FindFirstChild("BSlider") or createSimpleSlider(targetConfig, 140, "B", 0, 255, 120)
+    local sSpeed = targetConfig:FindFirstChild("SpeedSlider") or createSimpleSlider(targetConfig, 188, "Speed", 1, 10, 2)
+    local sStrength = targetConfig:FindFirstChild("StrengthSlider") or createSimpleSlider(targetConfig, 236, "Strength", 1, 10, 1)
+
+    -- FOV slider in VisualFrame
+    local function createFOVSlider()
+        local f = visualFrame:FindFirstChild("FOVSliderFrame")
+        if f then return f end
+        local fovCont = Instance.new("Frame", visualFrame); fovCont.Name = "FOVSliderFrame"; fovCont.Size = UDim2.new(1,-24,0,48); fovCont.Position = UDim2.new(0,12,0,160); fovCont.BackgroundTransparency = 1
+        local lbl = Instance.new("TextLabel", fovCont); lbl.Size = UDim2.new(0.5,0,1,0); lbl.Position = UDim2.new(0,6,0,0); lbl.BackgroundTransparency = 1; lbl.Text = "FOV"; lbl.Font = Enum.Font.Arcade; lbl.TextScaled = true; lbl.TextXAlignment = Enum.TextXAlignment.Left; lbl.TextColor3 = Color3.fromRGB(230,230,230)
+        local valLabel = Instance.new("TextLabel", fovCont); valLabel.Size = UDim2.new(0.5,-8,1,0); valLabel.Position = UDim2.new(0.5,0,0,0); valLabel.BackgroundTransparency = 1; valLabel.Text = tostring(math.floor(workspace.CurrentCamera.FieldOfView)); valLabel.Font = Enum.Font.Arcade; valLabel.TextScaled = true; valLabel.TextXAlignment = Enum.TextXAlignment.Right; valLabel.TextColor3 = Color3.fromRGB(230,230,230)
+        local bg = Instance.new("Frame", fovCont); bg.Size = UDim2.new(1,-12,0,8); bg.Position = UDim2.new(0,6,0,28); bg.BackgroundColor3 = Color3.fromRGB(40,40,40)
+        local fill = Instance.new("Frame", bg); fill.Size = UDim2.new((workspace.CurrentCamera.FieldOfView-40)/(120-40),0,1,0); fill.BackgroundColor3 = Color3.fromRGB(200,100,180)
+        local thumb = Instance.new("Frame", bg); thumb.Size = UDim2.new(0,12,0,12); thumb.AnchorPoint = Vector2.new(0.5,0.5); thumb.Position = UDim2.new((workspace.CurrentCamera.FieldOfView-40)/(120-40),0,0.5,0); thumb.BackgroundColor3 = Color3.fromRGB(200,100,180)
+        local dragging = false
+        local function setFromX(x)
+            local abs = bg.AbsoluteSize.X
+            if abs <= 0 then return end
+            local rel = math.clamp(x/abs, 0, 1)
+            fill.Size = UDim2.new(rel,0,1,0); thumb.Position = UDim2.new(rel,0,0.5,0)
+            local v = 40 + (120-40)*rel
+            valLabel.Text = tostring(math.floor(v))
+            workspace.CurrentCamera.FieldOfView = v
+            if writePersistValue then pcall(function() writePersistValue("v10_visuals_fov", tostring(v)) end) end
+            return v
+        end
+        bg.InputBegan:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseButton1 then dragging = true; setFromX(input.Position.X - bg.AbsolutePosition.X) end end)
+        UserInputService.InputChanged:Connect(function(input) if dragging and input.Position then setFromX(input.Position.X - bg.AbsolutePosition.X) end end)
+        bg.InputEnded:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseButton1 then dragging = false; if writePersistValue then pcall(function() writePersistValue("v10_visuals_fov", tostring(workspace.CurrentCamera.FieldOfView)) end) end end end)
+        return fovCont
+    end
+
+    createFOVSlider()
+
+    -- visuals workspace folder
+    local visFolderName = "StrafeVisuals_v10_W" .. tostring(LocalPlayer.UserId)
+    local visFolder = Workspace:FindFirstChild(visFolderName)
+    if not visFolder then visFolder = Instance.new("Folder", Workspace); visFolder.Name = visFolderName end
+
+    -- state
+    local currentMode = readPersistValue and (readPersistValue("v10_visual_mode") or "Circle") or "Circle"
+    local visualsEnabled = (tonumber(readPersistValue and readPersistValue("v10_visuals_esp") or 0) or 0) ~= 0
+    local targetVisEnabled = (tonumber(readPersistValue and readPersistValue("v10_targetvis_enabled") or 0) or 0) ~= 0
+
+    -- simple highlight based PlayerESP
+    local highlights = {}
+    local function enableESPForPlayer(p)
+        if not p or p == LocalPlayer then return end
+        if highlights[p] then return end
+        if not p.Character then return end
+        local ok, hl = pcall(function() local h = Instance.new("Highlight"); h.Name = "StrafeVisHL"; h.Adornee = p.Character; h.Parent = p.Character; h.FillTransparency = 0.6; h.OutlineTransparency = 0; h.FillColor = Color3.fromRGB(200,100,180); return h end)
+        if ok and hl then highlights[p] = hl end
+    end
+    local function disableESPForPlayer(p)
+        local h = highlights[p]
+        if h then pcall(function() h:Destroy() end); highlights[p] = nil end
+    end
+
+    local function refreshAllESPs(enable)
+        if enable then
+            for _,p in ipairs(Players:GetPlayers()) do if p ~= LocalPlayer then enableESPForPlayer(p) end end
+        else
+            for p,_ in pairs(highlights) do disableESPForPlayer(p) end
+        end
+    end
+
+    -- toggle handlers
+    playerESPBtn.MouseButton1Click:Connect(function()
+        visualsEnabled = not visualsEnabled
+        playerESPBtn.Text = "Player ESP: " .. (visualsEnabled and "ON" or "OFF")
+        if writePersistValue then pcall(function() writePersistValue("v10_visuals_esp", visualsEnabled and "1" or "0") end) end
+        refreshAllESPs(visualsEnabled)
+    end)
+    -- initial ESP state
+    if visualsEnabled then refreshAllESPs(true) end
+
+    targetESPBtn.MouseButton1Click:Connect(function()
+        targetVisEnabled = not targetVisEnabled
+        targetESPBtn.Text = "Target ESP: " .. (targetVisEnabled and "ON" or "OFF")
+        if writePersistValue then pcall(function() writePersistValue("v10_targetvis_enabled", targetVisEnabled and "1" or "0") end) end
+        if not targetVisEnabled then
+            -- clear visuals
+            for _,c in ipairs(visFolder:GetChildren()) do pcall(function() c:Destroy() end) end
+        end
+    end)
+
+    targetConfigBtn.MouseButton1Click:Connect(function() targetConfig.Visible = not targetConfig.Visible end)
+
+    -- helper to create visual parts
+    local visualParts = {}
+    local visualUpdater = nil
+
+    local function clearVisuals()
+        if visualUpdater then pcall(function() visualUpdater:Disconnect() end); visualUpdater = nil end
+        for _,o in ipairs(visualParts) do pcall(function() o:Destroy() end) end
+        visualParts = {}
+    end
+
+    local function createCircle(targetCharacter, color3, radius, segments)
+        clearVisuals()
+        segments = segments or 20
+        for i=1,segments do
+            local ang = (i/segments)*2*math.pi
+            local pos = targetCharacter.HumanoidRootPart.Position + Vector3.new(math.cos(ang)*radius, -1.2, math.sin(ang)*radius)
+            local p = Instance.new("Part"); p.Size = Vector3.new(0.22,0.22,0.22); p.Anchored = true; p.CanCollide = false; p.Material = Enum.Material.Neon; p.Color = color3; p.CFrame = CFrame.new(pos); p.Parent = visFolder
+            table.insert(visualParts, p)
+        end
+        visualUpdater = RunService.Heartbeat:Connect(function(dt)
+            local t = tick()*1.2
+            for i,p in ipairs(visualParts) do
+                if p and p.Parent then
+                    local base = p.CFrame
+                    local offset = math.sin(t + i)*0.03
+                    p.CFrame = base * CFrame.new(0, offset, 0)
+                end
+            end
+        end)
+    end
+
+    local function createSneak(targetCharacter, color3, radius, segments)
+        clearVisuals()
+        segments = segments or 18
+        for i=1,segments do
+            local ang = (i/segments)*2*math.pi
+            local pos = targetCharacter.HumanoidRootPart.Position + Vector3.new(math.cos(ang)*radius, -1.2, math.sin(ang)*radius)
+            local p = Instance.new("Part"); p.Size = Vector3.new(0.18,0.18,0.18); p.Anchored = true; p.CanCollide = false; p.Material = Enum.Material.Neon; p.Color = color3; p.CFrame = CFrame.new(pos); p.Parent = visFolder
+            table.insert(visualParts, p)
+        end
+        visualUpdater = RunService.Heartbeat:Connect(function(dt)
+            local t = tick()*2.0
+            for i,p in ipairs(visualParts) do
+                if p and p.Parent then
+                    local phase = (i/#visualParts)*math.pi*2 + t
+                    local squeeze = (1 + math.sin(phase)*0.18)
+                    local ang = (i/#visualParts)*2*math.pi
+                    local pos = targetCharacter.HumanoidRootPart.Position + Vector3.new(math.cos(ang)*radius*squeeze, -1.15 + math.sin(t+i)*0.03, math.sin(ang)*radius*squeeze)
+                    p.CFrame = CFrame.new(pos)
+                end
+            end
+        end)
+    end
+
+    local function createFire(targetCharacter, color3)
+        clearVisuals()
+        local p = Instance.new("Part"); p.Size = Vector3.new(0.2,0.2,0.2); p.Anchored = true; p.CanCollide = false; p.Transparency = 1; p.CFrame = targetCharacter.HumanoidRootPart.CFrame * CFrame.new(0,1.5,0); p.Parent = visFolder
+        local att = Instance.new("Attachment", p)
+        local emitter = Instance.new("ParticleEmitter", att)
+        emitter.Texture = "rbxassetid://243660951"
+        emitter.Speed = NumberRange.new(0.6,1.2); emitter.Rate = 35; emitter.Lifetime = NumberRange.new(0.6,1.2)
+        emitter.Rotation = NumberRange.new(0,360); emitter.RotSpeed = NumberRange.new(-20,20)
+        emitter.LightEmission = 0.7; emitter.Color = ColorSequence.new(color3)
+        table.insert(visualParts, p); table.insert(visualParts, emitter)
+        visualUpdater = RunService.Heartbeat:Connect(function(dt)
+            if p and p.Parent and targetCharacter and targetCharacter.Parent then
+                p.CFrame = targetCharacter.HumanoidRootPart.CFrame * CFrame.new(0,1.5,0)
+            end
+        end)
+    end
+
+    local function createStar(targetCharacter, color3, radius, count)
+        clearVisuals()
+        count = count or 6
+        for i=1,count do
+            local ang = (i/count)*2*math.pi
+            local pos = targetCharacter.HumanoidRootPart.Position + Vector3.new(math.cos(ang)*radius, 1.0, math.sin(ang)*radius)
+            local p = Instance.new("Part"); p.Size = Vector3.new(0.18,0.18,0.18); p.Anchored = true; p.CanCollide = false; p.Material = Enum.Material.Neon; p.Color = color3; p.CFrame = CFrame.new(pos); p.Parent = visFolder
+            table.insert(visualParts, p)
+        end
+        visualUpdater = RunService.Heartbeat:Connect(function(dt)
+            local t = tick()*0.6
+            for i,p in ipairs(visualParts) do
+                if p and p.Parent then
+                    local ang = (i/#visualParts)*2*math.pi + t
+                    local pos = targetCharacter.HumanoidRootPart.Position + Vector3.new(math.cos(ang)*radius, 1.0 + math.sin(t*0.5 + i)*0.12, math.sin(ang)*radius)
+                    p.CFrame = CFrame.new(pos)
+                end
+            end
+        end)
+    end
+
+    local function applyCurrentModeToTarget(targetCharacter)
+        if not targetCharacter or not targetCharacter:FindFirstChild("HumanoidRootPart") then clearVisuals(); return end
+        local r = sR and tonumber(sR.GetValue and sR.GetValue() or 200) or 200
+        local g = sG and tonumber(sG.GetValue and sG.GetValue() or 80) or 80
+        local b = sB and tonumber(sB.GetValue and sB.GetValue() or 120) or 120
+        local color = Color3.fromRGB(r,g,b)
+        local radius = 3
+        if currentMode == "Circle" then createCircle(targetCharacter, color, radius, 24)
+        elseif currentMode == "Sneak" then createSneak(targetCharacter, color, radius, 18)
+        elseif currentMode == "Fire" then createFire(targetCharacter, color)
+        elseif currentMode == "Star" then createStar(targetCharacter, color, radius*1.2, 6) end
+    end
+
+    -- find current target: try globals that other parts may set
+    local function getCurrentTargetPlayer()
+        if _G and _G.StrafeCurrentTarget and typeof(_G.StrafeCurrentTarget) == "Instance" then return _G.StrafeCurrentTarget end
+        if _G and _G.CurrentTarget and typeof(_G.CurrentTarget) == "Instance" then return _G.CurrentTarget end
+        if _G and _G.strafe_target and typeof(_G.strafe_target) == "Instance" then return _G.strafe_target end
+        return nil
+    end
+
+    -- poll loop to update visuals for current target
+    spawn(function()
+        while visGui and visGui.Parent do
+            if targetVisEnabled then
+                local t = getCurrentTargetPlayer()
+                if t and t.Character then
+                    applyCurrentModeToTarget(t.Character)
+                else
+                    clearVisuals()
+                end
+            else
+                clearVisuals()
+            end
+            wait(0.14)
+        end
+    end)
+
+    -- mode button logic
+    local function setMode(m)
+        currentMode = m
+        if writePersistValue then pcall(function() writePersistValue("v10_visual_mode", tostring(m)) end) end
+        btnCircle.BackgroundColor3 = (m=="Circle") and Color3.fromRGB(120,60,120) or Color3.fromRGB(36,36,40)
+        btnSneak.BackgroundColor3 = (m=="Sneak") and Color3.fromRGB(120,60,120) or Color3.fromRGB(36,36,40)
+        btnFire.BackgroundColor3 = (m=="Fire") and Color3.fromRGB(120,60,120) or Color3.fromRGB(36,36,40)
+        btnStar.BackgroundColor3 = (m=="Star") and Color3.fromRGB(120,60,120) or Color3.fromRGB(36,36,40)
+    end
+    setMode(currentMode)
+
+    btnCircle.MouseButton1Click:Connect(function() setMode("Circle") end)
+    btnSneak.MouseButton1Click:Connect(function() setMode("Sneak") end)
+    btnFire.MouseButton1Click:Connect(function() setMode("Fire") end)
+    btnStar.MouseButton1Click:Connect(function() setMode("Star") end)
+
+    -- visuals button + back button wiring
+    visualsBtn.MouseButton1Click:Connect(function()
+        visualFrame.Visible = true
+        if mainFrame then mainFrame.Visible = false end
+    end)
+    backBtn.MouseButton1Click:Connect(function()
+        visualFrame.Visible = false
+        if mainFrame then mainFrame.Visible = true end
+    end)
+
+    -- apply persisted FOV
+    local savedFov = nil
+    if readPersistValue then
+        pcall(function() savedFov = tonumber(readPersistValue("v10_visuals_fov")) end)
+    end
+    if savedFov and workspace.CurrentCamera then
+        pcall(function() workspace.CurrentCamera.FieldOfView = savedFov end)
+    end
+
+    -- cleanup on player removing
+    Players.PlayerRemoving:Connect(function(p) if highlights[p] then disableESPForPlayer(p) end end)
+
+end
