@@ -1,64 +1,57 @@
-local HttpService = game:GetService('HttpService')
+local HttpGet = game.HttpGet or (function(url, cache) return game:HttpGet(url, cache) end)
+local loadfun = loadstring or load
 
-local URL_LOGIC1 = "https://raw.githubusercontent.com/TikTokGG67439/FioletusHubScript.lua/refs/heads/main/FioletusLogic1.lua"
-local URL_LOGIC2 = "https://raw.githubusercontent.com/TikTokGG67439/FioletusHubScript.lua/refs/heads/main/FioletusLogic2.lua"
-
-local function fetchRaw(url)
-    local ok, res = pcall(function() return HttpService:GetAsync(url, true) end)
-    if not ok then
-        error('Http Get failed for '..tostring(url)..' : '..tostring(res))
-    end
-    return res
+local function HttpGetSafe(url)
+	local ok, res = pcall(function() return HttpGet(game, url, true) end)
+	if not ok then error("HttpGet failed: "..tostring(res)) end
+	return res
 end
 
-local function compileAndRun(code, name)
-    local fn, err = loadstring and loadstring(code) or load(code)
-    if not fn then
-        error('Compile error for '..tostring(name)..' : '..tostring(err))
-    end
-    local ok, ret = pcall(fn)
-    if not ok then
-        error('Runtime error while executing '..tostring(name)..' : '..tostring(ret))
-    end
-    return ret
+local function CompileAndRun(code, name)
+	if not loadfun then error("loadstring/load not available in this environment") end
+	local fn, perr = pcall(function() return loadfun(code) end)
+	if not fn or type(perr) ~= "function" then error("Compile error for "..tostring(name).." : "..tostring(perr)) end
+	local ok, ret = pcall(perr)
+	if not ok then error("Runtime error in "..tostring(name)..": "..tostring(ret)) end
+	return ret
 end
 
-local function readLocal(path)
-    local ok, content = pcall(function()
-        local f = io.open(path, 'r')
-        if not f then return nil end
-        local d = f:read('*a') f:close()
-        return d
-    end)
-    if ok then return content end
-    return nil
+-- Измените на свои raw-ссылки после загрузки на GitHub:
+local BASE = "https://raw.githubusercontent.com/<ТВОЙ_НИК>/<REPO>/main/"
+local LOGIC1_URL = BASE .. "FioletusLogic1.lua"   -- большой модуль (strafe, AimView, NoFall, CheckWall)
+local LOGIC2_URL = BASE .. "FioletusLogic2.lua"   -- визуалы (ESP и т.д.)
+
+-- Попытка загрузки
+local ok, code1 = pcall(HttpGetSafe, LOGIC1_URL)
+if not ok then warn("Failed to download Logic1: "..tostring(code1)) end
+local ok2, code2 = pcall(HttpGetSafe, LOGIC2_URL)
+if not ok2 then warn("Failed to download Logic2: "..tostring(code2)) end
+
+local Module1, Module2
+if ok then
+	local okc, m1 = pcall(function() return CompileAndRun(code1, "FioletusLogic1") end)
+	if okc then Module1 = m1 else warn("Compile/run failed for Logic1") end
+end
+if ok2 then
+	local okc2, m2 = pcall(function() return CompileAndRun(code2, "FioletusLogic2") end)
+	if okc2 then Module2 = m2 else warn("Compile/run failed for Logic2") end
 end
 
-local code1_ok, code1 = pcall(fetchRaw, URL_LOGIC1)
-local code2_ok, code2 = pcall(fetchRaw, URL_LOGIC2)
-
-if (not code1_ok or not code1 or #code1 < 20) then
-    local local1 = readLocal('FioletusLogic1.txt') or readLocal('/mnt/data/FioletusLogic1.txt')
-    if local1 then code1 = local1 end
-end
-if (not code2_ok or not code2 or #code2 < 20) then
-    local local2 = readLocal('FioletusLogic2.txt') or readLocal('/mnt/data/FioletusLogic2.txt')
-    if local2 then code2 = local2 end
-end
-
-local Module1 = compileAndRun(code1 or 'return nil', 'FioletusLogic1')
-local Module2 = compileAndRun(code2 or 'return nil', 'FioletusLogic2')
-
+-- Минимальный Host, который ожидают оба модуля
 local Host = {}
-function Host.GetLocalPlayer() return game:GetService('Players').LocalPlayer end
+function Host.GetLocalPlayer() return game:GetService("Players").LocalPlayer end
 function Host.GetWorkspace() return workspace end
 function Host.GetCamera() return workspace.CurrentCamera end
 function Host.RegisterHighlightForPlayer(p, h) end
 
-if Module1 and Module1.Init then pcall(function() Module1.Init(Host) end) end
-if Module2 and Module2.Init then pcall(function() Module2.Init(Host) end) end
+-- Если модули вернулись как таблицы с Init(), запускаем их
+if type(Module1) == "table" and Module1.Init then
+	pcall(function() Module1.Init(Host) end)
+end
+if type(Module2) == "table" and Module2.Init then
+	pcall(function() Module2.Init(Host) end)
+end
 
+-- Экспортируем в глобальную область (удобно для теста)
 _G.FioletusLogic1 = Module1
 _G.FioletusLogic2 = Module2
-
-print('Loader: modules loaded (remote or local fallback).')
