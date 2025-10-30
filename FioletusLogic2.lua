@@ -1,24 +1,4 @@
-local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
-local UserInputService = game:GetService("UserInputService")
-local TweenService = game:GetService("TweenService")
-local Workspace = game:GetService("Workspace")
-local HttpService = game:GetService("HttpService")
-local LocalPlayer = Players.LocalPlayer
-local PlayerId = LocalPlayer and LocalPlayer.UserId or 0
-local Camera = workspace.CurrentCamera
-
--- End of header
-
-
-
--- FioletusLogic2 (standalone)
--- Split file generated from StrafeScript1498_final_v3_fixed_pathing.txt
--- Lines: 173-1697
--- File: FioletusLogic2.txt
-
--- UI CREATION
-local playerGui = LocalPlayer:WaitForChild("PlayerGui")
+local playerGui = game.Players.LocalPlayer:WaitForChild("PlayerGui")
 
 -- remove old ui if exists
 for _, c in ipairs(playerGui:GetChildren()) do
