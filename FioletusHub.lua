@@ -2,7 +2,7 @@
 -- UI + HttpGet loader (generated)
 
 -- UI CREATION
-local playerGui = LocalPlayer:WaitForChild("PlayerGui")
+local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
 
 -- remove old ui if exists
 for _, c in ipairs(playerGui:GetChildren()) do
