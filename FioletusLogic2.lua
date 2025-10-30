@@ -1,63 +1,86 @@
 local Module = {}
 local Host = nil
 local Players = game:GetService("Players")
-local Workspace = game:GetService("Workspace")
+local RunService = game:GetService("RunService")
 
-local function createHighlightForCharacter(ch, color3)
+Module.espEnabled = false
+Module.checkWallEnabled = false
+Module.espColor = Color3.fromRGB(212,61,146)
+
+local playerHighl = {}
+
+local function safeDestroy(obj) if obj and obj.Parent then pcall(function() obj:Destroy() end) end end
+
+local function makeHighlightForCharacter(ch)
     if not ch then return nil end
-    local existing = ch:FindFirstChild("StrafeESP_Highlight")
-    if existing then pcall(function() existing:Destroy() end) end
+    local existing = ch:FindFirstChild("Fioletus_ESP_Highlight")
+    if existing and existing:IsA("Highlight") then return existing end
     local hl = Instance.new("Highlight")
-    hl.Name = "StrafeESP_Highlight"
+    hl.Name = "Fioletus_ESP_Highlight"
     hl.Adornee = ch
     hl.FillTransparency = 0.4
     hl.OutlineTransparency = 0
-    hl.FillColor = color3 or Color3.fromRGB(212,61,146)
+    hl.FillColor = Module.espColor
     hl.Parent = ch
     return hl
 end
 
-function Module.Init(host)
-    Host = host or {}
-    for _,p in ipairs(Players:GetPlayers()) do
-        p.CharacterAdded:Connect(function(ch)
-            if Module.espEnabled then createHighlightForCharacter(ch, Module.espColor) end
-        end)
-    end
+local function enableForPlayer(p)
+    if not p or (Host and Host.GetLocalPlayer and p == Host.GetLocalPlayer()) then return end
+    local ch = p.Character
+    if not ch then return end
+    local hl = makeHighlightForCharacter(ch)
+    playerHighl[p] = hl
 end
 
-Module.espEnabled = false
-Module.espColor = Color3.fromRGB(212,61,146)
+local function disableForPlayer(p)
+    local hl = playerHighl[p]
+    if hl then safeDestroy(hl) end
+    playerHighl[p] = nil
+end
+
+local function onPlayerAdded(p)
+    p.CharacterAdded:Connect(function(ch)
+        if Module.espEnabled then enableForPlayer(p) end
+    end)
+end
 
 function Module.SetESPEnabled(v)
     Module.espEnabled = not not v
     if Module.espEnabled then
         for _,p in ipairs(Players:GetPlayers()) do
-            if p.Character and p ~= Host.GetLocalPlayer() then
-                createHighlightForCharacter(p.Character, Module.espColor)
+            if Host and Host.GetLocalPlayer and p ~= Host.GetLocalPlayer() then
+                enableForPlayer(p)
             end
         end
     else
-        for _,p in ipairs(Players:GetPlayers()) do
-            if p.Character then
-                local ex = p.Character:FindFirstChild("StrafeESP_Highlight")
-                if ex then pcall(function() ex:Destroy() end) end
-            end
-        end
+        for p,_ in pairs(playerHighl) do disableForPlayer(p) end
     end
 end
 
-function Module.SetESPColor(r,g,b)
-    Module.espColor = Color3.fromRGB(r or 212, g or 61, b or 146)
+function Module.SetCheckWallEnabled(v) Module.checkWallEnabled = not not v end
+
+function Module.IsTargetVisible(myHRP, targetHRP)
+    if not targetHRP or not myHRP then return true end
+    if not Module.checkWallEnabled then return true end
+    local cam = Host and Host.GetCamera and Host.GetCamera() or workspace.CurrentCamera
+    local origin = cam.CFrame.Position
+    local dir = (targetHRP.Position - origin)
+    local rp = RaycastParams.new(); rp.FilterType = Enum.RaycastFilterType.Blacklist; rp.FilterDescendantsInstances = {}
+    if Host and Host.GetLocalPlayer and Host.GetLocalPlayer().Character then table.insert(rp.FilterDescendantsInstances, Host.GetLocalPlayer().Character) end
+    if targetHRP.Parent then table.insert(rp.FilterDescendantsInstances, targetHRP.Parent) end
+    local res = workspace:Raycast(origin, dir, rp)
+    if not res then return true end
+    if res.Instance and res.Instance:IsDescendantOf(targetHRP.Parent) then return true end
+    return false
 end
 
-function Module.Cleanup()
-    for _,p in ipairs(Players:GetPlayers()) do
-        if p.Character then
-            local ex = p.Character:FindFirstChild("StrafeESP_Highlight")
-            if ex then pcall(function() ex:Destroy() end) end
-        end
-    end
+function Module.Init(host)
+    Host = host or {}
+    Players.PlayerAdded:Connect(onPlayerAdded)
+    Players.PlayerRemoving:Connect(function(p) disableForPlayer(p) end)
+    for _,p in ipairs(Players:GetPlayers()) do onPlayerAdded(p) end
+    return Module
 end
 
 return Module
