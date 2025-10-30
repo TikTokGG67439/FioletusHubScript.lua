@@ -3,24 +3,6 @@ local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
 local Workspace = game:GetService("Workspace")
-local HttpService = game:GetService("HttpService")
-local LocalPlayer = Players.LocalPlayer
-local PlayerId = LocalPlayer and LocalPlayer.UserId or 0
-local Camera = workspace.CurrentCamera
-
--- End of header
-
-
-
--- FioletusLogic1 (standalone)
--- Split file generated from StrafeScript1498_final_v3_fixed_pathing.txt
--- Lines: 1-172
-
-local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
-local UserInputService = game:GetService("UserInputService")
-local TweenService = game:GetService("TweenService")
-local Workspace = game:GetService("Workspace")
 
 local LocalPlayer = Players.LocalPlayer
 local PlayerId = LocalPlayer and LocalPlayer.UserId or 0
