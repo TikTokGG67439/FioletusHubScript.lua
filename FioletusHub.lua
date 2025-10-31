@@ -2266,116 +2266,117 @@ end
 -- Appended safely; uses pcall and checks to avoid conflicts. Saves settings via writePersistValue/readPersistValue when available.
 -- =========================
 do
-    local Players = game:GetService("Players")
-    local RunService = game:GetService("RunService")
-    local TweenService = game:GetService("TweenService")
-    local Workspace = game:GetService("Workspace")
-    local UserInputService = game:GetService("UserInputService")
+    local VIS = VIS or {} -- grouped visuals state to reduce locals
+    VIS.Players = game:GetService("VIS.Players")
+    VIS.RunService = game:GetService("VIS.RunService")
+    VIS.TweenService = game:GetService("VIS.TweenService")
+    VIS.Workspace = game:GetService("VIS.Workspace")
+    VIS.UserInputService = game:GetService("VIS.UserInputService")
 
-    local LocalPlayer = Players.LocalPlayer
-    if not LocalPlayer then return end
-    local playerGui = LocalPlayer:WaitForChild("PlayerGui")
+    VIS.LocalPlayer = Players.LocalPlayer
+    if not VIS.LocalPlayer then return end
+    VIS.playerGui = VIS.LocalPlayer:WaitForChild("PlayerGui")
 
     -- ensure a single visuals GUI per player
-    local GUI_NAME = "StrafeVisuals_v10_" .. tostring(LocalPlayer.UserId)
-    local visGui = playerGui:FindFirstChild(GUI_NAME)
-    if not visGui then
-        visGui = Instance.new("ScreenGui")
-        visGui.Name = GUI_NAME
+    VIS.GUI_NAME = "StrafeVisuals_v10_" .. tostring(LocalPlayer.UserId)
+    VIS.visGui = VIS.playerGui:FindFirstChild(VIS.GUI_NAME)
+    if not VIS.visGui then
+        VIS.visGui = Instance.new("ScreenGui")
+        visGui.Name = VIS.GUI_NAME
         visGui.ResetOnSpawn = false
-        visGui.Parent = playerGui
+        visGui.Parent = VIS.playerGui
     end
 
     -- try to find existing MainFrame in other GUIs to integrate button placement
-    local mainFrame = nil
-    for _, g in ipairs(playerGui:GetChildren()) do
+    VIS.mainFrame = nil
+    for _, g in ipairs(VIS.playerGui:GetChildren()) do
         if g:IsA("ScreenGui") then
-            local mf = g:FindFirstChild("MainFrame")
-            if mf then mainFrame = mf; break end
+            VIS.mf = g:FindFirstChild("MainFrame")
+            if VIS.mf then VIS.mainFrame = VIS.mf; break end
         end
     end
 
     -- create VisualFrame
-    local visualFrame = visGui:FindFirstChild("VisualFrame")
-    if not visualFrame then
-        visualFrame = Instance.new("Frame")
+    VIS.visualFrame = VIS.visGui:FindFirstChild("VisualFrame")
+    if not VIS.visualFrame then
+        VIS.visualFrame = Instance.new("Frame")
         visualFrame.Name = "VisualFrame"
         visualFrame.Size = UDim2.new(0, 640, 0, 480)
         visualFrame.Position = UDim2.new(0.5, -320, 0.5, -240)
         visualFrame.AnchorPoint = Vector2.new(0.5, 0.5)
         visualFrame.BackgroundColor3 = Color3.fromRGB(18, 18, 20)
         visualFrame.Visible = false
-        visualFrame.Parent = visGui
-        local corner = Instance.new("UICorner", visualFrame); corner.CornerRadius = UDim.new(0,12)
-        local stroke = Instance.new("UIStroke", visualFrame); stroke.Thickness = 2; stroke.Color = Color3.fromRGB(200,100,180)
-        local title = Instance.new("TextLabel", visualFrame); title.Size = UDim2.new(1,-24,0,44); title.Position = UDim2.new(0,12,0,8); title.BackgroundTransparency = 1; title.Font = Enum.Font.Arcade; title.TextSize = 22; title.Text = "Visuals"; title.TextColor3 = Color3.fromRGB(200,100,180)
+        visualFrame.Parent = VIS.visGui
+        VIS.corner = Instance.new("UICorner", VIS.visualFrame); corner.CornerRadius = UDim.new(0,12)
+        VIS.stroke = Instance.new("UIStroke", VIS.visualFrame); stroke.Thickness = 2; stroke.Color = Color3.fromRGB(200,100,180)
+        VIS.title = Instance.new("TextLabel", VIS.visualFrame); title.Size = UDim2.new(1,-24,0,44); title.Position = UDim2.new(0,12,0,8); title.BackgroundTransparency = 1; title.Font = Enum.Font.Arcade; title.TextSize = 22; title.Text = "Visuals"; title.TextColor3 = Color3.fromRGB(200,100,180)
     end
 
-    -- create Visuals button (in mainFrame if available)
-    local visualsBtn = nil
-    if mainFrame then
-        visualsBtn = mainFrame:FindFirstChild("VisualsBtn")
-        if not visualsBtn then
-            visualsBtn = Instance.new("TextButton"); visualsBtn.Name = "VisualsBtn"; visualsBtn.Size = UDim2.new(0,120,0,34); visualsBtn.Position = UDim2.new(0.02, 8, 0.02, 8); visualsBtn.Text = "Visuals"; visualsBtn.Parent = mainFrame
-            local c = Instance.new("UICorner", visualsBtn); c.CornerRadius = UDim.new(0,6)
-            local s = Instance.new("UIStroke", visualsBtn); s.Thickness = 1.4; s.Color = Color3.fromRGB(200,100,180)
+    -- create Visuals button (in VIS.mainFrame if available)
+    VIS.visualsBtn = nil
+    if VIS.mainFrame then
+        VIS.visualsBtn = VIS.mainFrame:FindFirstChild("VisualsBtn")
+        if not VIS.visualsBtn then
+            VIS.visualsBtn = Instance.new("TextButton"); visualsBtn.Name = "VisualsBtn"; visualsBtn.Size = UDim2.new(0,120,0,34); visualsBtn.Position = UDim2.new(0.02, 8, 0.02, 8); visualsBtn.Text = "Visuals"; visualsBtn.Parent = VIS.mainFrame
+            local c = Instance.new("UICorner", VIS.visualsBtn); c.CornerRadius = UDim.new(0,6)
+            local s = Instance.new("UIStroke", VIS.visualsBtn); s.Thickness = 1.4; s.Color = Color3.fromRGB(200,100,180)
         end
     else
-        visualsBtn = visGui:FindFirstChild("VisualsBtn")
-        if not visualsBtn then
-            visualsBtn = Instance.new("TextButton"); visualsBtn.Name = "VisualsBtn"; visualsBtn.Size = UDim2.new(0,120,0,34); visualsBtn.Position = UDim2.new(0.02, 8, 0.02, 8); visualsBtn.Text = "Visuals"; visualsBtn.Parent = visGui
-            local c = Instance.new("UICorner", visualsBtn); c.CornerRadius = UDim.new(0,6)
-            local s = Instance.new("UIStroke", visualsBtn); s.Thickness = 1.4; s.Color = Color3.fromRGB(200,100,180)
+        VIS.visualsBtn = VIS.visGui:FindFirstChild("VisualsBtn")
+        if not VIS.visualsBtn then
+            VIS.visualsBtn = Instance.new("TextButton"); visualsBtn.Name = "VisualsBtn"; visualsBtn.Size = UDim2.new(0,120,0,34); visualsBtn.Position = UDim2.new(0.02, 8, 0.02, 8); visualsBtn.Text = "Visuals"; visualsBtn.Parent = VIS.visGui
+            local c = Instance.new("UICorner", VIS.visualsBtn); c.CornerRadius = UDim.new(0,6)
+            local s = Instance.new("UIStroke", VIS.visualsBtn); s.Thickness = 1.4; s.Color = Color3.fromRGB(200,100,180)
         end
     end
 
     -- Back button
-    local backBtn = visualFrame:FindFirstChild("BackBtn")
-    if not backBtn then
-        backBtn = Instance.new("TextButton"); backBtn.Name = "BackBtn"; backBtn.Size = UDim2.new(0,90,0,34); backBtn.Position = UDim2.new(0,12,0,56); backBtn.Text = "Back"; backBtn.Parent = visualFrame
-        local c = Instance.new("UICorner", backBtn); c.CornerRadius = UDim.new(0,6)
-        local s = Instance.new("UIStroke", backBtn); s.Thickness = 1.2; s.Color = Color3.fromRGB(200,100,180)
+    VIS.backBtn = VIS.visualFrame:FindFirstChild("BackBtn")
+    if not VIS.backBtn then
+        VIS.backBtn = Instance.new("TextButton"); backBtn.Name = "BackBtn"; backBtn.Size = UDim2.new(0,90,0,34); backBtn.Position = UDim2.new(0,12,0,56); backBtn.Text = "Back"; backBtn.Parent = VIS.visualFrame
+        local c = Instance.new("UICorner", VIS.backBtn); c.CornerRadius = UDim.new(0,6)
+        local s = Instance.new("UIStroke", VIS.backBtn); s.Thickness = 1.2; s.Color = Color3.fromRGB(200,100,180)
     end
 
     -- PlayerESP toggle inside VisualFrame
-    local playerESPBtn = visualFrame:FindFirstChild("PlayerESPBtn")
-    if not playerESPBtn then
-        playerESPBtn = Instance.new("TextButton"); playerESPBtn.Name = "PlayerESPBtn"; playerESPBtn.Size = UDim2.new(0,200,0,34); playerESPBtn.Position = UDim2.new(0,12,0,110); playerESPBtn.Text = "Player ESP: OFF"; playerESPBtn.Parent = visualFrame
-        local c = Instance.new("UICorner", playerESPBtn); c.CornerRadius = UDim.new(0,6)
-        local s = Instance.new("UIStroke", playerESPBtn); s.Thickness = 1.2; s.Color = Color3.fromRGB(200,100,180)
+    VIS.playerESPBtn = VIS.visualFrame:FindFirstChild("PlayerESPBtn")
+    if not VIS.playerESPBtn then
+        VIS.playerESPBtn = Instance.new("TextButton"); playerESPBtn.Name = "PlayerESPBtn"; playerESPBtn.Size = UDim2.new(0,200,0,34); playerESPBtn.Position = UDim2.new(0,12,0,110); playerESPBtn.Text = "Player ESP: OFF"; playerESPBtn.Parent = VIS.visualFrame
+        local c = Instance.new("UICorner", VIS.playerESPBtn); c.CornerRadius = UDim.new(0,6)
+        local s = Instance.new("UIStroke", VIS.playerESPBtn); s.Thickness = 1.2; s.Color = Color3.fromRGB(200,100,180)
     end
 
     -- TargetESP toggle + small config button
-    local targetESPBtn = visualFrame:FindFirstChild("TargetESPBtn")
-    if not targetESPBtn then
-        targetESPBtn = Instance.new("TextButton"); targetESPBtn.Name = "TargetESPBtn"; targetESPBtn.Size = UDim2.new(0,200,0,34); targetESPBtn.Position = UDim2.new(0,220,0,110); targetESPBtn.Text = "Target ESP: OFF"; targetESPBtn.Parent = visualFrame
-        local c = Instance.new("UICorner", targetESPBtn); c.CornerRadius = UDim.new(0,6)
-        local s = Instance.new("UIStroke", targetESPBtn); s.Thickness = 1.2; s.Color = Color3.fromRGB(200,100,180)
+    VIS.targetESPBtn = VIS.visualFrame:FindFirstChild("TargetESPBtn")
+    if not VIS.targetESPBtn then
+        VIS.targetESPBtn = Instance.new("TextButton"); targetESPBtn.Name = "TargetESPBtn"; targetESPBtn.Size = UDim2.new(0,200,0,34); targetESPBtn.Position = UDim2.new(0,220,0,110); targetESPBtn.Text = "Target ESP: OFF"; targetESPBtn.Parent = VIS.visualFrame
+        local c = Instance.new("UICorner", VIS.targetESPBtn); c.CornerRadius = UDim.new(0,6)
+        local s = Instance.new("UIStroke", VIS.targetESPBtn); s.Thickness = 1.2; s.Color = Color3.fromRGB(200,100,180)
     end
 
-    local targetConfigBtn = visualFrame:FindFirstChild("TargetConfigBtn")
-    if not targetConfigBtn then
-        targetConfigBtn = Instance.new("TextButton"); targetConfigBtn.Name = "TargetConfigBtn"; targetConfigBtn.Size = UDim2.new(0,40,0,34); targetConfigBtn.Position = UDim2.new(0,432,0,110); targetConfigBtn.Text = "⚙"; targetConfigBtn.Parent = visualFrame
-        local c = Instance.new("UICorner", targetConfigBtn); c.CornerRadius = UDim.new(0,6)
-        local s = Instance.new("UIStroke", targetConfigBtn); s.Thickness = 1.2; s.Color = Color3.fromRGB(200,100,180)
+    VIS.targetConfigBtn = VIS.visualFrame:FindFirstChild("TargetConfigBtn")
+    if not VIS.targetConfigBtn then
+        VIS.targetConfigBtn = Instance.new("TextButton"); targetConfigBtn.Name = "TargetConfigBtn"; targetConfigBtn.Size = UDim2.new(0,40,0,34); targetConfigBtn.Position = UDim2.new(0,432,0,110); targetConfigBtn.Text = "⚙"; targetConfigBtn.Parent = VIS.visualFrame
+        local c = Instance.new("UICorner", VIS.targetConfigBtn); c.CornerRadius = UDim.new(0,6)
+        local s = Instance.new("UIStroke", VIS.targetConfigBtn); s.Thickness = 1.2; s.Color = Color3.fromRGB(200,100,180)
     end
 
     -- Small popup for target visuals config
-    local targetConfig = visGui:FindFirstChild("TargetConfigFrame")
-    if not targetConfig then
-        targetConfig = Instance.new("Frame"); targetConfig.Name = "TargetConfigFrame"; targetConfig.Size = UDim2.new(0,320,0,260); targetConfig.Position = UDim2.new(0.5,-160,0.5,-130); targetConfig.BackgroundColor3 = Color3.fromRGB(20,20,24); targetConfig.Visible = false; targetConfig.Parent = visGui
-        local cc = Instance.new("UICorner", targetConfig); cc.CornerRadius = UDim.new(0,8)
-        local t = Instance.new("TextLabel", targetConfig); t.Size = UDim2.new(1,-12,0,32); t.Position = UDim2.new(0,6,0,8); t.BackgroundTransparency = 1; t.Text = "Target Visuals"; t.Font = Enum.Font.Arcade; t.TextScaled = true; t.TextColor3 = Color3.fromRGB(200,100,180)
+    VIS.targetConfig = VIS.visGui:FindFirstChild("TargetConfigFrame")
+    if not VIS.targetConfig then
+        VIS.targetConfig = Instance.new("Frame"); targetConfig.Name = "TargetConfigFrame"; targetConfig.Size = UDim2.new(0,320,0,260); targetConfig.Position = UDim2.new(0.5,-160,0.5,-130); targetConfig.BackgroundColor3 = Color3.fromRGB(20,20,24); targetConfig.Visible = false; targetConfig.Parent = VIS.visGui
+        VIS.cc = Instance.new("UICorner", VIS.targetConfig); cc.CornerRadius = UDim.new(0,8)
+        local t = Instance.new("TextLabel", VIS.targetConfig); t.Size = UDim2.new(1,-12,0,32); t.Position = UDim2.new(0,6,0,8); t.BackgroundTransparency = 1; t.Text = "Target Visuals"; t.Font = Enum.Font.Arcade; t.TextScaled = true; t.TextColor3 = Color3.fromRGB(200,100,180)
     end
 
     local function smallButton(parent, name, posY)
         local b = Instance.new("TextButton", parent); b.Name = name; b.Size = UDim2.new(0.48,-10,0,36); b.Position = UDim2.new(0.02,6,0,posY); b.Text = name; local c = Instance.new("UICorner", b); c.CornerRadius = UDim.new(0,6); local s = Instance.new("UIStroke", b); s.Thickness = 1.2; s.Color = Color3.fromRGB(200,100,180); return b
     end
 
-    local btnCircle = targetConfig:FindFirstChild("Circle") or smallButton(targetConfig, "Circle", 44)
-    local btnSneak = targetConfig:FindFirstChild("Sneak") or smallButton(targetConfig, "Sneak", 92)
-    local btnFire = targetConfig:FindFirstChild("Fire") or smallButton(targetConfig, "Fire", 140)
-    local btnStar = targetConfig:FindFirstChild("Star") or smallButton(targetConfig, "Star", 188)
+    VIS.btnCircle = VIS.targetConfig:FindFirstChild("Circle") or smallButton(VIS.targetConfig, "Circle", 44)
+    VIS.btnSneak = VIS.targetConfig:FindFirstChild("Sneak") or smallButton(VIS.targetConfig, "Sneak", 92)
+    VIS.btnFire = VIS.targetConfig:FindFirstChild("Fire") or smallButton(VIS.targetConfig, "Fire", 140)
+    VIS.btnStar = VIS.targetConfig:FindFirstChild("Star") or smallButton(VIS.targetConfig, "Star", 188)
 
     -- Color sliders (simple) + speed/strength sliders
     local function createSimpleSlider(parent, y, label, minV, maxV, init)
@@ -2402,17 +2403,17 @@ do
         return {Container = cont, GetValue = function() return tonumber(val.Text) end, SetValue = function(v) val.Text = tostring(math.floor(v)); local rel = (v-minV)/(maxV-minV); fill.Size = UDim2.new(math.clamp(rel,0,1),0,1,0); thumb.Position = UDim2.new(math.clamp(rel,0,1),0,0.5,0) end}
     end
 
-    local sR = targetConfig:FindFirstChild("RSlider") or createSimpleSlider(targetConfig, 44, "R", 0, 255, 200)
-    local sG = targetConfig:FindFirstChild("GSlider") or createSimpleSlider(targetConfig, 92, "G", 0, 255, 80)
-    local sB = targetConfig:FindFirstChild("BSlider") or createSimpleSlider(targetConfig, 140, "B", 0, 255, 120)
-    local sSpeed = targetConfig:FindFirstChild("SpeedSlider") or createSimpleSlider(targetConfig, 188, "Speed", 1, 10, 2)
-    local sStrength = targetConfig:FindFirstChild("StrengthSlider") or createSimpleSlider(targetConfig, 236, "Strength", 1, 10, 1)
+    local sR = VIS.targetConfig:FindFirstChild("RSlider") or createSimpleSlider(VIS.targetConfig, 44, "R", 0, 255, 200)
+    local sG = VIS.targetConfig:FindFirstChild("GSlider") or createSimpleSlider(VIS.targetConfig, 92, "G", 0, 255, 80)
+    local sB = VIS.targetConfig:FindFirstChild("BSlider") or createSimpleSlider(VIS.targetConfig, 140, "B", 0, 255, 120)
+    local sSpeed = VIS.targetConfig:FindFirstChild("SpeedSlider") or createSimpleSlider(VIS.targetConfig, 188, "Speed", 1, 10, 2)
+    local sStrength = VIS.targetConfig:FindFirstChild("StrengthSlider") or createSimpleSlider(VIS.targetConfig, 236, "Strength", 1, 10, 1)
 
     -- FOV slider in VisualFrame
     local function createFOVSlider()
-        local f = visualFrame:FindFirstChild("FOVSliderFrame")
+        local f = VIS.visualFrame:FindFirstChild("FOVSliderFrame")
         if f then return f end
-        local fovCont = Instance.new("Frame", visualFrame); fovCont.Name = "FOVSliderFrame"; fovCont.Size = UDim2.new(1,-24,0,48); fovCont.Position = UDim2.new(0,12,0,160); fovCont.BackgroundTransparency = 1
+        local fovCont = Instance.new("Frame", VIS.visualFrame); fovCont.Name = "FOVSliderFrame"; fovCont.Size = UDim2.new(1,-24,0,48); fovCont.Position = UDim2.new(0,12,0,160); fovCont.BackgroundTransparency = 1
         local lbl = Instance.new("TextLabel", fovCont); lbl.Size = UDim2.new(0.5,0,1,0); lbl.Position = UDim2.new(0,6,0,0); lbl.BackgroundTransparency = 1; lbl.Text = "FOV"; lbl.Font = Enum.Font.Arcade; lbl.TextScaled = true; lbl.TextXAlignment = Enum.TextXAlignment.Left; lbl.TextColor3 = Color3.fromRGB(230,230,230)
         local valLabel = Instance.new("TextLabel", fovCont); valLabel.Size = UDim2.new(0.5,-8,1,0); valLabel.Position = UDim2.new(0.5,0,0,0); valLabel.BackgroundTransparency = 1; valLabel.Text = tostring(math.floor(workspace.CurrentCamera.FieldOfView)); valLabel.Font = Enum.Font.Arcade; valLabel.TextScaled = true; valLabel.TextXAlignment = Enum.TextXAlignment.Right; valLabel.TextColor3 = Color3.fromRGB(230,230,230)
         local bg = Instance.new("Frame", fovCont); bg.Size = UDim2.new(1,-12,0,8); bg.Position = UDim2.new(0,6,0,28); bg.BackgroundColor3 = Color3.fromRGB(40,40,40)
@@ -2440,8 +2441,8 @@ do
 
     -- visuals workspace folder
     local visFolderName = "StrafeVisuals_v10_W" .. tostring(LocalPlayer.UserId)
-    local visFolder = Workspace:FindFirstChild(visFolderName)
-    if not visFolder then visFolder = Instance.new("Folder", Workspace); visFolder.Name = visFolderName end
+    local visFolder = VIS.Workspace:FindFirstChild(visFolderName)
+    if not visFolder then visFolder = Instance.new("Folder", VIS.Workspace); visFolder.Name = visFolderName end
 
     -- state
     local currentMode = readPersistValue and (readPersistValue("v10_visual_mode") or "Circle") or "Circle"
@@ -2451,7 +2452,7 @@ do
     -- simple highlight based PlayerESP
     local highlights = {}
     local function enableESPForPlayer(p)
-        if not p or p == LocalPlayer then return end
+        if not p or p == VIS.LocalPlayer then return end
         if highlights[p] then return end
         if not p.Character then return end
         local ok, hl = pcall(function() local h = Instance.new("Highlight"); h.Name = "StrafeVisHL"; h.Adornee = p.Character; h.Parent = p.Character; h.FillTransparency = 0.6; h.OutlineTransparency = 0; h.FillColor = Color3.fromRGB(200,100,180); return h end)
@@ -2464,7 +2465,7 @@ do
 
     local function refreshAllESPs(enable)
         if enable then
-            for _,p in ipairs(Players:GetPlayers()) do if p ~= LocalPlayer then enableESPForPlayer(p) end end
+            for _,p in ipairs(VIS.Players:GetPlayers()) do if p ~= VIS.LocalPlayer then enableESPForPlayer(p) end end
         else
             for p,_ in pairs(highlights) do disableESPForPlayer(p) end
         end
@@ -2607,7 +2608,7 @@ do
 
     -- poll loop to update visuals for current target
     spawn(function()
-        while visGui and visGui.Parent do
+        while VIS.visGui and visGui.Parent do
             if targetVisEnabled then
                 local t = getCurrentTargetPlayer()
                 if t and t.Character then
@@ -2641,11 +2642,11 @@ do
     -- visuals button + back button wiring
     visualsBtn.MouseButton1Click:Connect(function()
         visualFrame.Visible = true
-        if mainFrame then mainFrame.Visible = false end
+        if VIS.mainFrame then mainFrame.Visible = false end
     end)
     backBtn.MouseButton1Click:Connect(function()
         visualFrame.Visible = false
-        if mainFrame then mainFrame.Visible = true end
+        if VIS.mainFrame then mainFrame.Visible = true end
     end)
 
     -- apply persisted FOV
